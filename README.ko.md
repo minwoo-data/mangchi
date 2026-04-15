@@ -138,7 +138,17 @@ cp -r ~/.claude/skills/mangchi-src/skills/mangchi ~/.claude/skills/
 
 ---
 
-## 검증 근거
+## 연구 근거 (Research backing)
+
+Cross-model 코드 리뷰는 학술적으로 뒷받침됨. LLM은 **자기가 만든 출력을 리뷰할 때 구조적으로 실패**함 — Tsui et al. (2025)은 14개 오픈소스 모델에서 64.5%의 self-correction blind spot을 문서화([arXiv:2507.02778](https://arxiv.org/abs/2507.02778), NeurIPS 2025 LLM Evaluation Workshop). Gong et al. (2024)는 동일한 패턴이 **코드 보안**에서 특히 심하다는 것을 확인 — 모델은 자기 코드의 보안 결함을 수리하는 성공률이 다른 모델의 코드를 수리할 때보다 현저히 낮음 ([arXiv:2408.10495](https://arxiv.org/abs/2408.10495)). Semgrep (2025)은 이 이론적 예측이 실전에서 확인됨을 보임 — Claude와 Codex는 11개 실제 Python 웹 앱에서 **서로 다른 취약점 클래스**를 잡았고, 발견 내용이 중복이 아닌 상보적이었음 ([Semgrep blog](https://semgrep.dev/blog/2025/finding-vulnerabilities-in-modern-web-apps-using-claude-code-and-openai-codex)).
+
+Mangchi는 이 발견들을 단일 워크플로우로 구현: Claude가 편집, Codex가 리뷰, 축 로테이션, 라운드 누적, 라운드별 감사 기록.
+
+전체 인용과 각 출처가 **주장하지 않는 것** 목록은 [`skills/mangchi/RESEARCH.md`](skills/mangchi/RESEARCH.md) 참조.
+
+---
+
+## 실전 검증 근거
 
 실제 프로젝트에서 잡은 버그 사례는 [`skills/mangchi/CASE-STUDIES.md`](skills/mangchi/CASE-STUDIES.md)에 기록되어 있습니다.
 

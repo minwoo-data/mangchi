@@ -125,7 +125,27 @@ Any of:
   pass with the same axis prompt, tagged `[fallback: main-local-pass]` in
   the round log
 
-## Evidence
+## Research backing
+
+Cross-model code review is empirically supported. LLMs systematically
+underperform when reviewing their own output — Tsui et al. (2025) document
+a 64.5% self-correction blind spot across 14 open-source models
+([arXiv:2507.02778](https://arxiv.org/abs/2507.02778), NeurIPS 2025 LLM
+Evaluation Workshop). Gong et al. (2024) find the same pattern specifically
+for code security: models repair their own insecure code far less
+successfully than code produced by a different model
+([arXiv:2408.10495](https://arxiv.org/abs/2408.10495)). Semgrep (2025)
+confirms the complementary-failure prediction in practice — Claude and
+Codex caught different vulnerability classes on 11 real-world Python web
+apps ([Semgrep blog](https://semgrep.dev/blog/2025/finding-vulnerabilities-in-modern-web-apps-using-claude-code-and-openai-codex)).
+
+Mangchi operationalizes this: Claude edits, Codex reviews, rotating axes,
+round-delta accumulation, audit trail per round.
+
+See [`skills/mangchi/RESEARCH.md`](skills/mangchi/RESEARCH.md) for full
+quotes, links, and what these sources do NOT claim.
+
+## Evidence from real use
 
 See [`skills/mangchi/CASE-STUDIES.md`](skills/mangchi/CASE-STUDIES.md) for
 concrete examples of real bugs caught on real projects — bug categories,
