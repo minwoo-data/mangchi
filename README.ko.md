@@ -2,7 +2,7 @@
 
 **Language**: [English](README.md) · **한국어**
 
-> Claude가 코드를 수정하고 Codex CLI가 비판하며, 회전하는 리뷰 축(correctness / security / readability / performance / design)으로 코드를 반복 망치질합니다. Pumasi의 철학적 반전.
+> 기존 코드 파일 하나를 cross-model 반복 리뷰로 망치질합니다. Claude가 수정·판단하고 Codex CLI가 축별(correctness / security / readability / performance / design)로 비판. 수렴하거나 cap에 도달할 때까지 반복.
 
 ---
 
@@ -16,11 +16,11 @@
 
 ## 이런 작업엔 쓰지 마세요
 
-- **Greenfield 구현** → [pumasi](https://github.com/fivetaku/pumasi) 추천 (Codex가 시그니처+게이트 기반으로 구현)
-- **문서/마크다운 리뷰** → 3-관점 숙의 도구(예: triad) 추천
+- **Greenfield 구현 (처음부터 만들기)** — mangchi는 기존 코드를 다듬는 도구. 코드 생성은 별도 도구가 적합
+- **문서/마크다운 리뷰** — mangchi는 실행 가능한 코드 대상. 문서는 숙의형 도구 권장
 - **다중 파일 교차 리팩토링** — mangchi는 단일 파일 전용
 - **80줄 이하 유틸리티** — 오버헤드가 signal 대비 큼
-- **테스트 작성만** — Claude가 직접 쓰거나 pumasi가 적합
+- **테스트 작성만** — Claude가 직접 쓰거나 코드 생성 도구가 적합
 
 ---
 
@@ -42,17 +42,20 @@
 └───────────────────────────────────┘
 ```
 
-**Pumasi와 정확히 반대**:
+**핵심 불변식**: Claude만 파일을 수정하고, Codex는 비판만 한다. 이 분리가 mangchi의 전부.
 
-| | Pumasi | Mangchi |
+## 관련 도구 (생태계 위치)
+
+Mangchi는 다른 Claude Code 도구들과 자연스럽게 조합됨:
+
+| 단계 | 도구 | 역할 |
 |---|---|---|
-| Claude 역할 | PM / 감독 | 코더 + 판단자 |
-| Codex 역할 | **코더 × N (병렬)** | **비판자 (직렬, 라운드당)** |
-| 불변식 | "Claude는 코드 안 짠다" | **"Codex는 코드 안 짠다"** |
-| 토큰 | Codex 많이, Claude 적게 | **Claude 많이, Codex 적게** |
-| 최적 용도 | Greenfield 대량 구현 | 기존 코드 품질 개선 |
+| 결정 | 숙의형 도구 (예: triad) | 다관점 설계 리뷰 |
+| 구현 | 코드 생성 플러그인 (예: [pumasi](https://github.com/fivetaku/pumasi)) | 병렬 greenfield 구현 |
+| **다듬기** | **mangchi (이 도구)** | **단일 파일 반복 cross-model 리뷰** |
+| 검증 | 기존 리뷰/테스트 러너 | merge 전 최종 게이트 |
 
-Claude 토큰이 Codex보다 여유 있다면(예: Claude Max $200), mangchi가 경제적으로 더 맞습니다. 반대 상황이라면 pumasi가 낫습니다. **두 도구는 조합 가능** — `triad(설계) → pumasi(구현) → mangchi(다듬기)`.
+Mangchi가 타깃하는 지점은 **"코드는 있는데 더 견고해져야 한다"는 구체적 공백**. Claude Max 구독 등으로 Claude 토큰 여유가 있으면 경제적으로 잘 맞음.
 
 ---
 
@@ -156,5 +159,5 @@ MIT — [`LICENSE`](LICENSE) 참조.
 ## 크레딧
 
 - Created by: Minwoo Park
-- [Pumasi](https://github.com/fivetaku/pumasi)(철학적 반전의 원본)에서 영감
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) + [OpenAI Codex CLI](https://github.com/openai/codex) 위에 구축
+- [Pumasi](https://github.com/fivetaku/pumasi)에서 영감 — Claude-as-supervisor / Codex-as-worker 패턴을 Claude Code 플러그인에 처음 도입한 도구

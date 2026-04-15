@@ -30,27 +30,27 @@ critique.
 
 ## When NOT to use it
 
-- **Greenfield construction** → use [pumasi](https://github.com/fivetaku/pumasi)
-  (Codex writes code from a signature + gate spec; Claude supervises)
-- **Markdown or documentation review** → use
-  [triad](https://github.com/minwoo-data/triad) (3 perspectives: LLM / architect
-  / end-user; read-only deliberation)
+- **Greenfield construction from scratch** — mangchi hardens existing code;
+  use a code-generation tool for net-new implementation
+- **Markdown or documentation review** — use a deliberation tool instead
+  (mangchi operates on executable code with real fixes, not prose)
 - **Cross-file architectural refactors** — mangchi is single-file by design
 - **Tiny utility files** (< 80 LoC) — overhead exceeds signal
 
-## Philosophical inverse of pumasi
+## Related tools (ecosystem fit)
 
-| | pumasi | mangchi |
+Mangchi is designed to compose with other Claude Code tools in a natural
+workflow:
+
+| Stage | Tool | Role |
 |---|---|---|
-| Claude's role | PM / supervisor | Coder + judge |
-| Codex's role | **Coder × N (parallel)** | **Critic (serial, per-round)** |
-| Invariant | "Claude does not write code" | "Codex does not write code" |
-| Token economy | Codex-heavy, Claude-light | Claude-heavy, Codex-light |
-| Best for | Greenfield bulk implementation | Hardening existing code |
+| Decide | deliberation tools (e.g. triad) | Multi-perspective design review before coding |
+| Build | code-generation plugins (e.g. [pumasi](https://github.com/fivetaku/pumasi)) | Parallel greenfield implementation |
+| **Harden** | **mangchi (this)** | **Single-file iterative cross-model review** |
+| Verify | existing review/test runners | Final gate before merge |
 
-If you have more Claude tokens than Codex tokens, mangchi plays to your
-economy. If you have cheap Codex and want to offload implementation,
-pumasi is the right choice. They compose: `triad → pumasi → mangchi`.
+Pick the one that matches the stage you're in. Mangchi specifically
+targets the "code exists, needs to be better" gap.
 
 ## Install
 
@@ -137,7 +137,7 @@ MIT — see [`LICENSE`](LICENSE).
 ## Credits
 
 - Created by: Minwoo Park
-- Inspired by [pumasi](https://github.com/fivetaku/pumasi) (the philosophical
-  inverse)
-- Built on top of [Claude Code](https://docs.claude.com/en/docs/claude-code)
+- Built on [Claude Code](https://docs.claude.com/en/docs/claude-code)
   and the [OpenAI Codex CLI](https://github.com/openai/codex)
+- Inspired by [pumasi](https://github.com/fivetaku/pumasi), which pioneered
+  Claude-as-supervisor / Codex-as-worker patterns in Claude Code plugins
