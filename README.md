@@ -1,5 +1,7 @@
 # 망치 (Mangchi) — Iterative Code Refinement
 
+**Language**: **English** · [한국어](README.ko.md)
+
 > Claude writes, Codex critiques, Claude decides. Rotating review axes until
 > the code stops moving or you hit the cap. Like hammering metal into shape
 > one stroke at a time.
