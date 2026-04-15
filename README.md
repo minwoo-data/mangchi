@@ -33,7 +33,8 @@ critique.
 - **Greenfield construction from scratch** — mangchi hardens existing code;
   use a code-generation tool for net-new implementation
 - **Markdown or documentation review** — use a deliberation tool instead
-  (mangchi operates on executable code with real fixes, not prose)
+  (e.g. [triad](https://github.com/minwoo-data/triad) — mangchi operates on
+  executable code with real fixes, not prose)
 - **Cross-file architectural refactors** — mangchi is single-file by design
 - **Tiny utility files** (< 80 LoC) — overhead exceeds signal
 
@@ -44,7 +45,7 @@ workflow:
 
 | Stage | Tool | Role |
 |---|---|---|
-| Decide | deliberation tools (e.g. triad) | Multi-perspective design review before coding |
+| Decide | deliberation tools (e.g. [triad](https://github.com/minwoo-data/triad)) | Multi-perspective design review before coding |
 | Build | code-generation plugins (e.g. [pumasi](https://github.com/fivetaku/pumasi)) | Parallel greenfield implementation |
 | **Harden** | **mangchi (this)** | **Single-file iterative cross-model review** |
 | Verify | existing review/test runners | Final gate before merge |

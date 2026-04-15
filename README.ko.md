@@ -17,7 +17,7 @@
 ## 이런 작업엔 쓰지 마세요
 
 - **Greenfield 구현 (처음부터 만들기)** — mangchi는 기존 코드를 다듬는 도구. 코드 생성은 별도 도구가 적합
-- **문서/마크다운 리뷰** — mangchi는 실행 가능한 코드 대상. 문서는 숙의형 도구 권장
+- **문서/마크다운 리뷰** — mangchi는 실행 가능한 코드 대상. 문서는 [triad](https://github.com/minwoo-data/triad) 같은 숙의형 도구 권장
 - **다중 파일 교차 리팩토링** — mangchi는 단일 파일 전용
 - **80줄 이하 유틸리티** — 오버헤드가 signal 대비 큼
 - **테스트 작성만** — Claude가 직접 쓰거나 코드 생성 도구가 적합
@@ -50,7 +50,7 @@ Mangchi는 다른 Claude Code 도구들과 자연스럽게 조합됨:
 
 | 단계 | 도구 | 역할 |
 |---|---|---|
-| 결정 | 숙의형 도구 (예: triad) | 다관점 설계 리뷰 |
+| 결정 | 숙의형 도구 (예: [triad](https://github.com/minwoo-data/triad)) | 다관점 설계 리뷰 |
 | 구현 | 코드 생성 플러그인 (예: [pumasi](https://github.com/fivetaku/pumasi)) | 병렬 greenfield 구현 |
 | **다듬기** | **mangchi (이 도구)** | **단일 파일 반복 cross-model 리뷰** |
 | 검증 | 기존 리뷰/테스트 러너 | merge 전 최종 게이트 |
