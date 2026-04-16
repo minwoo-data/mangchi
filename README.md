@@ -83,47 +83,84 @@ Restart Claude Code after install.
 ## Usage
 
 ```
-/mangchi src/services/auth.py                   # default: updated.py only, original untouched
-/mangchi src/services/auth.py --apply=original  # also Edit the original file
-/mangchi src/utils/hash.py --axes=correctness,security   # restrict axis rotation
-/mangchi --continue auth-py                     # resume an in-progress session
-/mangchi --stop auth-py                         # force close with whatever's in state
+/mangchi src/services/auth.py                         # default: updated.* only, original untouched
+/mangchi src/services/auth.py --apply=original        # also Edit the original file
+/mangchi src/utils/hash.py --only-axes=correctness,security   # restrict axis rotation
+/mangchi src/new_module.py --include-axes=necessity   # default 5 + necessity opt-in
+/mangchi src/auth.py --start-axis=security            # R1 starts on security (not default correctness)
+/mangchi src/parse.py --gate "pytest -x tests/"       # require external gate before CONVERGED
+/mangchi src/x.py --no-verify                         # skip verify loop (adversarial guarantee lost)
+/mangchi --continue src-services-auth-py              # resume an in-progress session (including aborted)
+/mangchi --stop src-services-auth-py                  # force close with whatever's in state
 ```
 
 Natural-language triggers also work: *"망치로 다듬어줘"*, *"codex로 반복 리뷰해줘"*.
 
-See `skills/mangchi/references/usage.md` for more examples.
+See `skills/mangchi/references/usage.md` for every flag and more examples.
 
-## The five axes
+## The five axes (default) + `necessity` opt-in
 
-| Axis | Question it asks |
-|---|---|
-| `correctness` | Does the code behave right on every input shape? |
-| `security` | What attack surface does this expose? |
-| `readability` | Can a contributor understand & change this in 6 months? |
-| `performance` | Where is it wasting I/O, memory, or cycles? |
-| `design` | Will this still be maintainable in a year? |
+| Axis | Question it asks | Default |
+|---|---|---|
+| `correctness` | Does the code behave right on every input shape? | ✓ |
+| `security` | What attack surface does this expose? | ✓ |
+| `readability` | Can a contributor understand & change this in 6 months? | ✓ |
+| `performance` | Where is it wasting I/O, memory, or cycles? | ✓ |
+| `design` | Will this still be maintainable in a year? | ✓ |
+| `necessity` | Is this new code necessary, or does existing infra cover it? (YAGNI) | opt-in via `--include-axes=necessity` |
 
 Each round uses exactly one axis. **Adjacent rounds cannot repeat an axis** —
 rotation is enforced so you don't get five "correctness" rounds in a row.
 
-## Termination
+## Termination (v2 schema)
 
 Any of:
-1. **Two consecutive PASS + no-changes** verdicts from Codex
-2. **Diff convergence** — the current round's LoC change is ≤ 30% of the previous round's
-3. **5 rounds** (hard cap; prevents oscillation + token drain)
-4. **User `/stop`**
+1. **Two consecutive verified rounds** — all ACCEPTed issues actually touched
+   a matching diff (`locus` ±5 rule) AND zero `DISAGREE` returns from Codex's
+   verify pass.
+2. **Two consecutive `PASS + no_changes_suggested`** — requires `correctness`
+   AND `security` to each have been executed at least once (gaming guard;
+   "easy axes only" PASS streaks don't count).
+3. **R5 hard cap** (prevents oscillation + token drain).
+4. **`--gate "<cmd>"` exit 0** — external command passes (runs once before
+   termination, or every round with `--gate-every-round`).
+5. **User `--stop`**.
+
+Aborts (session can be resumed with `--continue` after manual arbitration):
+- Cumulative Codex tokens ≥ 500K
+- `forced_accept_count ≥ --force-accept-threshold` (default **1** = strict)
+- Codex YAML schema retry exhausted
+- Per-call context window exceeded (≥ 180K tokens)
 
 ## Safety defaults
 
-- Original files are **never** modified without explicit `--apply=original`
-- Default mode writes to `docs/refinement/<slug>/updated.py`; user decides
-  when to replace the original
-- Each round's Codex prompt and response are preserved as audit trail
-- If Codex CLI fails or times out, main agent falls back to a local review
-  pass with the same axis prompt, tagged `[fallback: main-local-pass]` in
-  the round log
+- Original files are **never** modified without explicit `--apply=original`.
+- Default writes under `docs/refinement/mangchi/<slug>/updated.*`; namespaced
+  to avoid collision with `triad`.
+- **Verification loop (Phase 6)** — every Claude REJECT is re-reviewed by
+  Codex. `DISAGREE` carries the issue into the next round; two consecutive
+  `DISAGREE` on the same issue flips to `FORCED_ACCEPT` (system-promoted,
+  not Claude's choice).
+- **ACCEPT diff verification (Phase 5)** — each ACCEPTed issue's `locus`
+  must actually be touched in `git diff -w --numstat` (±5 line fuzz). No-op
+  ACCEPTs are carried forward, not counted toward convergence.
+- **REJECT requires citation** — `file:LINE` or test name in the reason is
+  mandatory (hard validation error, never silently flipped to ACCEPT).
+- **Shell-injection-safe Codex calls** — strict tempfile + stdin pattern; no
+  argv interpolation. All dynamic prompt content appended via
+  `cat <file> >>` (never via unquoted variable expansion).
+- **Pre-flight guards** — Bash 4+, file size (≤ 2000 LoC / ≤ 200KB unless
+  `--force`), 2-PASS coverage warning if `--only-axes` excludes correctness
+  or security.
+- **Token budget** — per-round (80K estimate cap, `--force-round` bypass),
+  per-call (180K context window, hard abort), cumulative (150K warn, 500K
+  abort).
+- **Codex missing handling** — interactive confirmation before self-review
+  (which disables verify loop + `FORCED_ACCEPT`). Non-interactive envs
+  auto-abort unless `--allow-self-review` passed.
+- Each round's Codex prompt, review response, and verify response are
+  preserved as audit trail (`round-N.prompt.txt`, `.codex.txt`,
+  `.verify.txt`). `INDEX.md` summarizes all rounds.
 
 ## Research backing
 

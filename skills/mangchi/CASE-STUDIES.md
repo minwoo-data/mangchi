@@ -1,5 +1,14 @@
 # Mangchi — Case Studies
 
+> **⚠️ Legacy schema notice**: All cases below were produced under
+> **v0.1.x (legacy schema — `verdict: BLOCK` present, no verify loop,
+> 30%-diff convergence rule, single Codex call per round)**. v0.2.0
+> introduces schema_version 1 with breaking changes: verification loop,
+> `FORCED_ACCEPT` mechanism, ACCEPT diff verification, min-axis coverage for
+> 2-PASS termination. Expect behavior to differ — these cases are preserved
+> as historical evidence, not as v0.2.0 empirical backing. New-design cases
+> will be added as they accumulate.
+
 > Evidence of what mangchi has caught in production-adjacent code.
 > Factual. No marketing. Includes limits and failures.
 >

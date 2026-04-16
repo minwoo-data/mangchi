@@ -5,6 +5,113 @@ All notable changes to the Mangchi plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-04-16
+
+Schema v1 — adversarial guarantee hardening. Backwards-incompatible output
+schema; legacy sessions detected via `state.json.schema_version` and warned.
+
+### Added
+- **Verification loop (Phase 6)** — Codex re-reviews every Claude REJECT on a
+  second call. `AGREE` closes the issue; `DISAGREE` carries the issue into the
+  next round as a forward agenda item.
+- **FORCED_ACCEPT mechanism** — two consecutive `DISAGREE` on the same issue
+  flips to forced acceptance (system-promoted, not Claude's choice).
+- **`--force-accept-threshold=N`** — strict abort-on-first (default 1) vs
+  permissive (N > 1). Strict preserves adversarial integrity at the cost of
+  occasionally aborting on small legitimate disagreements.
+- **ACCEPT git-diff verification (Phase 5)** — each ACCEPTed issue's `locus`
+  must actually be touched in the diff (±5 fuzz factor); "no-op ACCEPT" is
+  detected and carried forward, excluded from convergence counting.
+- **REJECT citation hard error** — REJECT reason without `file:LINE` or
+  test-name citation triggers validation failure (never silently flipped to
+  ACCEPT).
+- **Pre-flight guards**:
+  - Bash 4+ check
+  - File size limits (≤2000 LoC, ≤200KB unless `--force`)
+  - `--only-axes` 2-PASS coverage warning (disables PASS termination if
+    correctness or security is excluded)
+  - Windows path normalization (backslash → slash)
+- **Token budget** — per-round pre-send estimate (≥80K abort,
+  `--force-round` bypass), per-call context window (≥180K hard abort),
+  cumulative (≥150K warn, ≥500K abort).
+- **Shell-injection-safe Codex calls** — strict tempfile + stdin pattern,
+  `cat file >>` for all dynamic content. Prompt must never be passed via
+  argv.
+- **New flags**: `--only-axes`, `--include-axes`, `--start-axis`, `--gate`,
+  `--gate-every-round`, `--no-verify`, `--allow-self-review`, `--force`,
+  `--force-round`, `--dry-run`, `--force-accept-threshold`.
+- **`INDEX.md`** — regenerated every round with round-by-round summary table.
+- **`axes.md` schema block** — single source of truth for output YAML format
+  (verdict, issue, verify shapes).
+- **`necessity` axis** — moved to opt-in via `--include-axes=necessity`
+  (default 5 axes). Rationale: `necessity` is a removal/refactor judgment,
+  closer to greenfield than refinement.
+- **Directory namespace** — artifacts now under
+  `docs/refinement/mangchi/<slug>/` (separated from `triad`'s
+  `docs/refinement/<slug>/`). Legacy path detected and warned.
+
+### Changed
+- **Stop conditions rewritten**. Old: 2-PASS / 30%-diff convergence / cap.
+  New: 2 verified rounds / 2-PASS (with min axis coverage) / R5 cap /
+  optional `--gate` / manual `--stop`. The 30%-diff ratio rule is removed
+  entirely (it was gameable — one-char edit in R2 would trigger it).
+- **YAML schema unified** to `schema_version: 1`:
+  - `verdict` enum: `PASS | REVISE` (removed `BLOCK`).
+  - `severity` casing: `HIGH | MEDIUM | LOW` (was lowercase).
+  - Issue identifier: new required `id` field (int, round-unique).
+  - `locus` field is now the source-of-truth for both REJECT verification and
+    ACCEPT diff verification.
+- **Phase 2 Codex invocation** — no longer accepts prompt via argv; must use
+  `$CODEX < "$PROMPT_FILE"` only. Heredoc must be quoted (`<<'EOF'`).
+- **Self-review fallback** — no longer silent. In TTY, the user is asked to
+  confirm; in non-TTY, auto-abort. Self-review mode disables verify loop AND
+  FORCED_ACCEPT (explicitly documented as "adversarial guarantee
+  forfeited").
+- **R1 axis selection** — default remains `correctness` but is now
+  overridable with `--start-axis=<axis>`.
+- **Axis precedence** (R2+): explicit ordering
+  `same-axis-ban > carryover-disagree > signal-heuristic` (was ambiguous in
+  v1).
+- **Description in SKILL frontmatter** fully rewritten to reflect new stop
+  conditions, verify loop, and Codex-required note.
+
+### Removed
+- **`verdict: BLOCK`** enum value (use `REVISE` + `severity: HIGH` instead).
+- **`DEFER` decision** from Claude's Phase 4 choices (use `--continue` across
+  rounds or `--stop` + follow-up session instead).
+- **Diff-ratio convergence rule** (30% threshold was gameable).
+
+### Fixed
+- **Shell injection vector** in the Codex prompt path (v1 passed
+  `codex exec "$PROMPT"` — a file containing backticks or `$(...)` in string
+  literals or docstrings would trigger shell expansion at the wrong layer).
+  v2 forbids argv entirely and uses tempfile + stdin.
+- **Directory collision with `triad`** (both wrote to
+  `docs/refinement/<slug>/`). Now namespaced.
+
+### Known Gaps
+- **Single-file scope** unchanged; cross-file architectural issues still out
+  of scope.
+- **Codex CLI still required** for intended behavior — self-review mode
+  degrades the skill to approximately linter quality.
+- **Token-economy assumption** (Claude abundant, Codex scarce) — inverted
+  for ChatGPT-Plus-heavy users; pumasi may suit that case better.
+- **`±5` locus heuristic** for no-op ACCEPT detection can false-negative on
+  refactors that move the locus outside the window. Documented in SKILL.md
+  Known Limits.
+- **Citation truth** — Claude's `file:LINE` is format-validated but content
+  not verified against the actual code; `--gate "<pytest>"` is the only
+  hard counter.
+
+### Migration Notes
+- Sessions from v0.1.x continue to load on `--continue <slug>`, but:
+  - `state.json.schema_version` will be absent — a warning is printed.
+  - Old `docs/refinement/<slug>/` path is detected; new runs use
+    `docs/refinement/mangchi/<slug>/`. No automatic migration.
+  - Old `verdict: BLOCK` → treated as `REVISE + severity: HIGH` during resume.
+- **CASE-STUDIES.md is legacy evidence** — the 23-bug / 9-file batch was
+  produced under v0.1.x. New-design empirical cases must be re-accumulated.
+
 ## [0.1.0] — 2026-04-15
 
 Initial public release.

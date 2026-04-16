@@ -59,37 +59,51 @@ Mangchi가 타깃하는 지점은 **"코드는 있는데 더 견고해져야 한
 
 ---
 
-## 5개 리뷰 축
+## 5개 리뷰 축 + `necessity` opt-in
 
-각 라운드는 **정확히 하나의 축**만 사용. **인접한 두 라운드는 같은 축을 반복할 수 없음**(로테이션 강제).
+각 라운드는 **정확히 하나의 축**만 사용. **인접한 두 라운드는 같은 축을 반복할 수 없음** (로테이션 강제).
 
-| 축 | 던지는 질문 |
-|---|---|
-| `correctness` | 모든 입력 형태에서 올바르게 동작하는가? |
-| `security` | 어떤 공격 표면을 노출하는가? |
-| `readability` | 6개월 뒤에도 기여자가 이해하고 변경할 수 있는가? |
-| `performance` | I/O, 메모리, CPU를 어디서 낭비하는가? |
-| `design` | 1년 뒤에도 유지 가능한 설계인가? |
+| 축 | 던지는 질문 | 기본 |
+|---|---|---|
+| `correctness` | 모든 입력 형태에서 올바르게 동작하는가? | ✓ |
+| `security` | 어떤 공격 표면을 노출하는가? | ✓ |
+| `readability` | 6개월 뒤에도 기여자가 이해하고 변경할 수 있는가? | ✓ |
+| `performance` | I/O, 메모리, CPU를 어디서 낭비하는가? | ✓ |
+| `design` | 1년 뒤에도 유지 가능한 설계인가? | ✓ |
+| `necessity` | 이 추가가 정말 필요한가? 기존 인프라로 해결되지 않는가? (YAGNI) | opt-in — `--include-axes=necessity` |
 
 ---
 
-## 종결 조건
+## 종결 조건 (v2)
 
 아래 중 **하나라도** 충족되면 종결:
 
-1. **2 라운드 연속 PASS + no-changes** — Codex가 2연속 "더 고칠 것 없음" 선언
-2. **Diff 수렴** — 이번 라운드 변경 LoC가 직전 라운드의 **30% 이하**
-3. **5 라운드 hard cap** — 오실레이션·토큰 드레인 방지
-4. **사용자 `/stop`**
+1. **2 라운드 연속 verified** — ACCEPT된 모든 이슈가 실제 diff에 반영 (`locus` ±5 규칙) AND Codex verify에서 `DISAGREE` 0건
+2. **2 라운드 연속 PASS + no_changes_suggested** — **단, 세션 이력에 `correctness`와 `security` 축이 각각 최소 1회씩 실행되어 있어야 유효** (게이밍 방지)
+3. **R5 hard cap** (오실레이션·토큰 드레인 방지)
+4. **`--gate "<cmd>"` exit 0** — 외부 게이트 통과 (종결 직전 1회, 또는 `--gate-every-round`)
+5. **사용자 `--stop`**
+
+Abort 트리거 (manual arbitration 후 `--continue`로 재개 가능):
+- Cumulative Codex 토큰 ≥ 500K
+- `forced_accept_count ≥ --force-accept-threshold` (default **1** = strict)
+- Codex YAML 스키마 재시도 실패
+- Per-call context window ≥ 180K
 
 ---
 
 ## 안전 기본값
 
-- 원본 파일은 **절대로 자동 수정되지 않음** (명시적 `--apply=original` 없으면)
-- 기본 모드: `docs/refinement/<slug>/updated.py`에만 작성, 사용자가 수동으로 원본 교체 결정
-- 각 라운드의 Codex 프롬프트+응답이 감사 기록으로 보존됨
-- Codex CLI 실패/타임아웃 시 메인 에이전트가 동일 축 프롬프트로 local-pass 대체, 라운드 문서에 `[fallback: main-local-pass]` 명시
+- 원본 파일은 **절대로 자동 수정되지 않음** (명시적 `--apply=original` 없으면).
+- 기본 모드: `docs/refinement/mangchi/<slug>/updated.*`에만 작성 (triad와 네임스페이스 분리).
+- **Verification loop (Phase 6)** — Claude의 모든 REJECT를 Codex가 재검증. `DISAGREE`면 다음 라운드로 이월, 2연속 `DISAGREE`는 `FORCED_ACCEPT`로 승격 (시스템 결정, Claude 선택 아님).
+- **ACCEPT diff 검증 (Phase 5)** — ACCEPT 이슈의 `locus` ±5줄이 실제 diff에 반영됐는지 체크. no-op ACCEPT는 다음 라운드 의제로 이월되며 수렴 카운트 제외.
+- **REJECT citation 강제** — `file:LINE` 또는 테스트명 인용 필수 (없으면 hard error, silent ACCEPT flip 금지).
+- **Shell-injection 방어** — Codex 호출은 **tempfile + stdin 전용**, argv 금지. 동적 프롬프트 섹션은 `cat <file> >>` 방식만 허용.
+- **Pre-flight 가드** — Bash 4+ 체크, 파일 크기 (≤ 2000 LoC / ≤ 200KB unless `--force`), `--only-axes`가 correctness/security 중 하나라도 빼면 2-PASS 종결 경로 비활성 경고.
+- **Token 예산** — per-round 80K 추정 cap (`--force-round` bypass), per-call 180K context window (hard abort), cumulative 150K 경고 / 500K abort.
+- **Codex 부재 시** — 대화형 환경에서만 self-review 확인 프롬프트 표시 (self-review는 verify loop + FORCED_ACCEPT 모두 비활성). 비대화형은 auto-abort (`--allow-self-review` 지정 시에만 자동 진행).
+- 각 라운드의 prompt / review / verify 원본이 감사 기록으로 보존됨 (`round-N.prompt.txt`, `.codex.txt`, `.verify.txt`). `INDEX.md`에 라운드별 요약표 자동 갱신.
 
 ---
 
@@ -125,14 +139,20 @@ cp -r ~/.claude/skills/mangchi-src/skills/mangchi ~/.claude/skills/
 ## 사용법
 
 ```
-/mangchi src/services/auth.py                         # 기본 모드 — updated.py만, 원본 불변
-/mangchi src/services/auth.py --apply=original        # 원본 파일도 Edit
-/mangchi src/utils/hash.py --axes=correctness,security  # 특정 축만 순환
-/mangchi --continue auth-py                           # 진행 중 세션 이어하기
-/mangchi --stop auth-py                               # 현 시점까지 결과로 강제 종결
+/mangchi src/services/auth.py                             # 기본 모드 — updated.*만, 원본 불변
+/mangchi src/services/auth.py --apply=original            # 원본 파일도 Edit
+/mangchi src/utils/hash.py --only-axes=correctness,security  # 지정 축만 순환 (기본 5축 대체)
+/mangchi src/new_module.py --include-axes=necessity       # 기본 5축 + necessity opt-in
+/mangchi src/auth.py --start-axis=security                # R1 시작 축 지정 (기본 correctness)
+/mangchi src/parse.py --gate "pytest -x tests/"           # 외부 게이트 통과 필수
+/mangchi src/x.py --no-verify                             # Phase 6 verify 스킵 (adversarial 가치 상실)
+/mangchi --continue src-services-auth-py                  # 진행 중 세션 이어하기 (abort된 세션도 포함)
+/mangchi --stop src-services-auth-py                      # 현 시점까지 결과로 강제 종결
 ```
 
 자연어 트리거: *"망치로 다듬어줘"*, *"codex로 반복 리뷰해줘"* 도 동작.
+
+모든 플래그와 예시는 [`skills/mangchi/references/usage.md`](skills/mangchi/references/usage.md).
 
 자세한 예시는 [`skills/mangchi/references/usage.md`](skills/mangchi/references/usage.md) 참조.
 
