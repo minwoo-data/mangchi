@@ -5,6 +5,52 @@ All notable changes to the Mangchi plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-04-17
+
+Adoption polish release. Same algorithm, safer defaults, clearer docs.
+
+### Changed
+- **Default `--force-accept-threshold` changed from 1 to 2** (adoption-friendly).
+  `=1` (strict, abort-on-first) preserved as opt-in for security/crypto code.
+  Rationale: pre-release review showed first-run users hitting abort on a
+  single debatable REJECT — defeats the "iterative" promise of the tool.
+- **Description frontmatter compressed** from ~600 chars to ~260 chars.
+  Catalogue browsers see a readable summary, details in body.
+- **Phase 0 renumbered** cleanly 1–7 (was 1,2,3,4,5,4,5,6 after an earlier
+  insertion — caught by pre-release review).
+- **Phase 0 consolidated preflight** — Bash 4+ / git / Python 3.8+ / PyYAML /
+  Codex all checked up front with actionable remediation per failure, instead
+  of mid-Phase-0 surprise.
+- **Flag surface split into Essential (5) + Advanced (collapsible)**.
+  First-time users see only `<file>`, `--apply=original`, `--gate`,
+  `--continue`, `--stop`. Advanced behind `<details>` toggle.
+
+### Removed (YAGNI)
+- **`--gate-every-round`** — no realistic use case; running pytest after every
+  round is cost-prohibitive and `--gate` at termination already exists.
+- **`--force-round`** — second cap on the same concept as the 180K context
+  window; soft 80K cap merged into the single hard 180K guard.
+- **`--dry-run`** — duplicated the `round-1.prompt.txt` artifact, which is
+  already produced by any real run.
+- **`--axes=+necessity` legacy alias** — pre-1.0 tool has no users to
+  maintain compat for. `--include-axes=necessity` is now the only form.
+
+### Added
+- **Soft coverage floor (R4→R5)**: if `correctness` or `security` hasn't run
+  by R4 (and isn't excluded by `--only-axes`), R5 auto-assigns the missing
+  axis. Final guard against "easy axes only" gaming.
+- **Security-sensitive filename refusal in self-review mode**: filenames
+  matching `auth|security|crypto|password|token|secret|sanitiz|permission|acl`
+  refuse self-review entirely, even with `--allow-self-review`. The
+  adversarial guard matters most on these exact files.
+
+### Fixed
+- **Frontmatter / TL;DR / Phase 7 doc drift** on FORCED_ACCEPT threshold
+  (description said 1, TL;DR said 3, Phase 7 said `force_accept_threshold`
+  with default 1 — now all agree on 2).
+- **Changelog entry in SKILL body** for FORCED_ACCEPT corrected from
+  stale "≥ 3 abort" wording.
+
 ## [0.2.0] — 2026-04-16
 
 Schema v1 — adversarial guarantee hardening. Backwards-incompatible output
