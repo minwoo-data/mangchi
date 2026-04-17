@@ -1,0 +1,22 @@
+{
+  "name": "mangchi",
+  "version": "0.2.0",
+  "description": "Iterative cross-model code refinement — Claude patches, Codex CLI reviews one of 5 axes per round with verification loop, until the code converges.",
+  "author": {
+    "name": "Minwoo Park",
+    "url": "https://github.com/minwoo-data"
+  },
+  "homepage": "https://github.com/minwoo-data/mangchi",
+  "repository": "https://github.com/minwoo-data/mangchi",
+  "license": "MIT",
+  "keywords": [
+    "code-review",
+    "codex",
+    "refinement",
+    "iterative",
+    "adversarial-review",
+    "cross-model"
+  ],
+  "commands": "./commands/",
+  "skills": "./skills/"
+}

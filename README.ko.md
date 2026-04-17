@@ -123,16 +123,16 @@ codex login    # 또는 OPENAI_API_KEY 환경변수 설정
 ### 플러그인 설치
 
 ```bash
-# 마켓플레이스 (출시 후)
-/plugin marketplace add https://github.com/minwoo-data/mangchi
-/plugin install mangchi
+# 권장: Claude Code 플러그인 마켓플레이스
+/plugin marketplace add minwoo-data/mangchi
+/plugin install mangchi@mangchi
 
-# 또는 수동: repo를 clone하고 Claude Code의 skills 경로로 복사
+# 또는 수동 설치 (marketplace route가 안 되는 환경)
 git clone https://github.com/minwoo-data/mangchi ~/.claude/skills/mangchi-src
 cp -r ~/.claude/skills/mangchi-src/skills/mangchi ~/.claude/skills/
 ```
 
-설치 후 Claude Code **재시작** 필수.
+설치 후 Claude Code **재시작** 필수. 마켓플레이스 경로로 설치하면 이후 업데이트는 `/plugin update mangchi@mangchi` 한 줄로 끝 — re-clone 불필요.
 
 ---
 

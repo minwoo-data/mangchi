@@ -69,16 +69,16 @@ codex login    # or set OPENAI_API_KEY
 ### Plugin install
 
 ```bash
-# via marketplace (once published)
-/plugin marketplace add https://github.com/minwoo-data/mangchi
-/plugin install mangchi
+# Preferred: via Claude Code plugin marketplace
+/plugin marketplace add minwoo-data/mangchi
+/plugin install mangchi@mangchi
 
-# or manual: clone into your Claude Code skills path
+# Or manual: clone into your Claude Code skills path
 git clone https://github.com/minwoo-data/mangchi ~/.claude/skills/mangchi-src
 cp -r ~/.claude/skills/mangchi-src/skills/mangchi ~/.claude/skills/
 ```
 
-Restart Claude Code after install.
+Restart Claude Code after install. After the marketplace route, upgrades are a single `/plugin update mangchi@mangchi` — no re-clone needed.
 
 ## Usage
 
