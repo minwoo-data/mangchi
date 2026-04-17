@@ -9,7 +9,7 @@
       "name": "mangchi",
       "source": "./",
       "description": "Iterative cross-model code refinement \u2014 Claude edits, Codex CLI reviews one axis at a time with verification loop, until the code converges.",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "author": {
         "name": "Minwoo Park",
         "url": "https://github.com/minwoo-data"

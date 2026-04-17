@@ -6,6 +6,169 @@
 
 ---
 
+## Case Study B — Parallel 4-Session Sweep on a Python Backend
+
+**Target**: Same Python Flask backend referenced in Case Study 1 (v0.1.x),
+broadened beyond the single validator in Case Study A. Four subsystems
+audited concurrently via git worktrees: security/core (auth, rate-limit,
+session-keyed batch state store, usage-tracking/alerting), OCR/receipts/
+matching pipeline, statement/vendor/export/docs, and a scheduler. ~42
+modules across 30+ source files.
+
+**Purpose**: measure mangchi at parallel-execution scale — 4 concurrent
+main agents, each running triad breadth → mangchi depth on its subsystem.
+Does convergence hold? Do real patches land? What's the operational cost?
+
+**Environment**:
+- Mangchi: v0.2.1 (schema v1)
+- Main agents: 4 × Claude Opus 4.7 (1M context), one per subsystem
+- Codex CLI: default model (tempfile+stdin)
+- Mode: triad breadth (read-only) → mangchi depth (updated-only)
+- Supervisor session: 5th Claude monitoring branch state and merge orchestration
+
+### Headline numbers
+
+| Metric | Value |
+|---|---|
+| Parallel main sessions | 4 (+ 1 supervisor) |
+| Triad breadth reviews | 42+ modules |
+| Modules escalated to mangchi depth | 7 |
+| **Src/ patches landed from mangchi** | **2 of 7 (29%)** |
+| Non-actionable CONVERGED | 5 of 7 (71%) |
+| Wall-clock (per session, parallel) | ~4h |
+| Total session-hours | ~16 |
+| Real production bugs caught by mangchi depth | 2 (concurrency, API drift) |
+
+### Bugs landed
+
+**Bug 1 — Concurrent state store: mutate outside RLock boundary**
+
+A session-keyed batch state store used `threading.RLock`. Most mutations
+were properly locked, but two entry points had mutations outside the lock
+scope:
+
+- `_ensure_batch_id` generated a UUID and wrote it to `session_obj[batch_id]`
+  before entering the lock. Two concurrent uploads for the same new session
+  key each generated a UUID — only one survived, orphaning the other's
+  downstream results.
+- `clear()` computed the new batch id inside the lock but performed the
+  `session_obj[batch_id] = new_id` assignment AFTER releasing. A concurrent
+  `append_result` could recreate the just-cleared slot with a stale id.
+
+Unit tests were single-threaded; neither race could reach the window.
+Mangchi's correctness+security axis rotation surfaced both in round-1
+convergence. Fix: move mutations into the lock scope (RLock allows
+re-entry, so wrapping check-and-set was safe).
+
+**Bug 2 — Silent failure in alert dispatch (API contract drift)**
+
+An alert-dispatch helper with signature `(subject: str, detail: str)` was
+invoked elsewhere as `send_..._alert(title=..., body=...)`. Python raised
+`TypeError`, but the caller wrapped the alert in
+`try/except Exception: logger.warning(...)` — so the exception was logged
+and swallowed. Effect: operator alert emails stopped reaching recipients
+silently. Tests passed (no failure-branch coverage); code review had
+missed it across multiple reads.
+
+Mangchi's depth round forced a signature review on the module and
+converged on both the kwargs rename AND a sibling cost-counter race on
+the same module — two fixes in one convergence round.
+
+### Non-actionable CONVERGED (5 of 7)
+
+Five additional modules (auth-guard, admin-audit route, admin-users route,
+email-service, pending-employee-service) converged to "no patch needed".
+Each CONVERGED report contains Codex's initial candidate finding, the
+main agent's verification against live code, and explicit reasoning for
+why no single-file patch applies. Examples:
+
+- auth-guard: role-check path was correct; the "race-free permission
+  caching" suspicion verified as a non-issue.
+- email-service: HTML injection candidate verified as already escaped at
+  output boundary.
+- pending-employee-service: name-normalization "mismatch" was documented
+  casing asymmetry elsewhere — intentional.
+
+This is **not** a failure mode — these CONVERGED reports are written
+evidence that the modules are sound under the audited axes. Adopters
+should expect and value the no-op outcome; it's how a clean module earns
+its audit stamp without fabricated diffs.
+
+### Cross-session orchestration — what we learned
+
+Running 4 mangchi sessions in parallel exposed operational concerns
+unique to multi-session scale:
+
+- **Branch contamination**: one session's `git add` on a shared worktree
+  scooped up a sibling session's uncommitted triad docs into its own
+  commit. Mangchi is single-worktree by design; parallel execution
+  requires a supervisor monitoring `git worktree list` + `git status`
+  at ~5-minute intervals.
+- **Zero-commit session**: one of four target branches never received a
+  commit — its intended triad output ended up on a sibling branch via
+  the same `git add` contamination event. Content reached main via the
+  sibling's merge; branch name no longer matched its content, but the
+  actual work was preserved.
+- **Convergence-time variance**: wall-clock per session varied ~2h to
+  4.5h. A naive "wait for all sessions to finish before merging" policy
+  left 60+ uncommitted files at risk in one session for 40+ minutes.
+  An auto-merge-on-idle-commit supervisor pattern (3-minute idle threshold)
+  reduced risk but added orchestration work.
+
+### What mangchi did NOT find (Case Study B–specific)
+
+- **Branch-hygiene bugs** — not a mangchi feature; supervisor-level concern.
+- **Session contamination events** — detected only via outside-session
+  observation of file mtimes and `git worktree list`.
+- **Aggregate "same-class bug across N files" patterns** — e.g., all
+  services forgetting to flush audit buffers on shutdown. Mangchi is
+  single-file by design; pattern synthesis happened at the triad
+  PATTERNS layer, not by mangchi itself.
+
+### What surprised us
+
+- **Signal rate is a feature, not a deficiency.** On a codebase that had
+  already received multiple review passes, 29% actionable rate means
+  7 CONVERGED → 2 src/ patches. The 5 non-patches are themselves useful:
+  written proof that under the audited axes, the module is sound. A
+  higher actionable rate on mature code would suggest the tool is
+  fabricating changes; 29% is the honest signal.
+- **Concurrency bugs slip past everything except depth+axis-rotation.**
+  Both race conditions had existed through code reviews AND a full test
+  suite that never exercised concurrent paths. Mangchi surfaced both in
+  round-1 convergence on the correctness axis — before security was even
+  scheduled.
+- **Parallel session count is not free.** 4 × 4h = 16 session-hours for
+  2 real patches = 8h per patch. A single-session sequential sweep would
+  have been ~8h wall-clock for the same 2 patches. Parallel gains
+  wall-clock time, costs coordination. Pick based on deadline pressure.
+
+### Reproducibility
+
+Per-module artifacts preserved under `docs/refinement/mangchi/<slug>/`:
+- `source-snapshot.py`, `round-N.prompt.txt`, `round-N.codex.txt`,
+  `round-N.md`, `CONVERGED.md`
+
+Per-session aggregate at `docs/refinement/session-burn/<session-id>/`:
+- `PATTERNS-X.md` synthesis across the session's file scope
+- Individual `round-1.md` triad reviews
+
+### Key takeaways for Case Study B
+
+- **Mangchi scales to parallel sessions**, but requires supervisor-level
+  orchestration for branch discipline. The tool is single-worktree by
+  design; running N concurrent sessions is an adopter choice about
+  coordination, not a mangchi feature.
+- **29% signal rate on mature code is correct behavior.** If your
+  codebase is already review-audited, expect most CONVERGED reports to
+  be "no patch"; that's evidence of audit quality, not tool weakness.
+- **Two unique classes mangchi uniquely surfaced this round**:
+  concurrency via axis-rotation (correctness → security on the same
+  state-mutating module) and silent API-contract drift via signature
+  review in depth phase. Neither had been caught by prior review passes.
+
+---
+
 ## Case Study A — 4-Tool Adversarial Bench on a Security Validator
 
 **Target**: `src/security/file_validator.py` — Flask upload pipeline validator

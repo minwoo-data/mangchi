@@ -1,6 +1,6 @@
 {
   "name": "mangchi",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Iterative cross-model code refinement \u2014 Claude patches, Codex CLI reviews one of 5 axes per round with verification loop, until the code converges.",
   "author": {
     "name": "Minwoo Park",

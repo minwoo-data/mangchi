@@ -5,6 +5,26 @@ All notable changes to the Mangchi plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] — 2026-04-17
+
+Docs release — adds Case Study B to evidence base. No code or algorithm
+changes.
+
+### Added
+- **Case Study B** in `skills/mangchi/CASE-STUDIES-v2.md` — parallel
+  4-session sweep on a Python Flask backend (~42 modules audited,
+  4 concurrent main agents + 1 supervisor). 2 real production bugs
+  landed via mangchi depth phase: concurrent state-store race
+  (mutate-outside-RLock on two entry points) and API contract drift
+  with silent alert-dispatch failure. 29% signal rate (2 of 7 CONVERGED
+  → src/ patch) documented as honest mature-codebase expectation, with
+  the 5 non-patches explicitly valued as "no-op audit stamps" rather
+  than noise.
+- **Operational note** on multi-session parallel execution — mangchi is
+  single-worktree by design; N concurrent sessions require an external
+  supervisor pattern to catch branch-contamination events. Two such
+  events caught during this run.
+
 ## [0.2.1] — 2026-04-17
 
 Adoption polish release. Same algorithm, safer defaults, clearer docs.
