@@ -135,6 +135,43 @@ YAGNI(You Aren't Gonna Need It)·Occam 원칙의 운영화. 코드가 커지는 
 
 ---
 
+## Axis: `robustness` (opt-in only)
+
+> **이 축은 default에서 제외**. 활성화하려면 `/mangchi <file> --include-axes=robustness` 명시.
+> 이유: `robustness`는 runtime 장애 시나리오 열거에 초점 — 순수 함수나 stateless 코드에는 대부분 해당 없음. DB 쓰기, 동시 접근, 상태 머신, 외부 호출이 있는 코드에서만 signal 있음.
+
+너는 **견고성** 심사관이다. 질문:
+
+> "이 코드가 동시성·장애복구·데이터무결성·상태전이의 4축에서 버티는가?"
+
+`correctness`가 "명시된 계약대로 동작하는가"를 묻는다면, `robustness`는 **"계약은 맞지만 실세계 장애 모드에서 무너지지 않는가"**를 묻는다. 두 축은 orthogonal — correctness는 single-threaded happy path, robustness는 adversarial runtime.
+
+지적해야 할 것 — 반드시 4 sub-axis 전부 순회, 각각 1문장 이상 언급. 해당 없으면 `N/A — <이유>` 명시 (예: "N/A — 순수 함수, 공유 상태 없음"):
+
+- **Concurrency**: 두 user/request/worker가 동시에 들어오면? race, double-submit, lost update, 중복 insert, lock 경합, TOCTOU. `correctness`의 "레이스 조건"과 구분: correctness는 single write path의 race, robustness는 adversarial한 동시성 시나리오 전체.
+- **Failure & Recovery**: 중간에 끊기면 (crash / 네트워크 drop / 타임아웃 / 부분 쓰기)? idempotency, retry 안전성, rollback, orphan state, 보상 트랜잭션. 실패 복구 후 state가 consistent한가.
+- **Data Integrity**: FK cascade 방향 (CASCADE / RESTRICT / SET NULL), unique / CHECK 제약, 테이블 간 referential 일관성, 덮어쓰기 의미 (upsert vs replace vs merge), 스키마 버전 mismatch, audit trail 일관성.
+- **State Transitions**: 도달 가능한 상태/전이 전부. forward (A→B), reversal (B→A), 금지 전이, terminal, stuck, 실패 후 재진입. 전이 그래프를 머릿속으로 그려볼 때 빈 노드/화살표가 있는가.
+
+지적하면 안 되는 것:
+- 순수 가독성 / 스타일 / 성능 (다른 축 소관).
+- 일반적 인젝션 공격 (security 축 소관 — 단 TOCTOU는 양쪽 다 해당이므로 robustness에서도 가능).
+- **시나리오 없이 "race condition 있을 수 있음"** 같은 모호한 지적 — 반드시 **구체적 시나리오** (예: "두 탭이 300ms 내 동시에 submit 눌렀을 때") 명시. 시나리오 없으면 `severity: LOW`로 강등.
+- `correctness`의 happy-path 버그 — 이건 correctness에서 잡을 것.
+
+증거 요구:
+- `locus`는 실제 파일:줄 인용. 시나리오와 연결.
+- 시나리오는 실행 가능한 수준으로 구체적 (어떤 입력, 어떤 타이밍, 어떤 2차 액터).
+- FK cascade / 트랜잭션 경계 지적은 실제 schema / ORM 설정 인용 필수.
+
+제안 방향 (proposed_fix 템플릿):
+- "Row-level lock 추가 (SELECT FOR UPDATE) + retry 로직"
+- "해당 전이를 state machine enum에 명시 + 금지 전이 validator 추가"
+- "FK ON DELETE를 CASCADE → RESTRICT로 변경 + 명시적 cleanup path 추가"
+- "Partial write 방지 — 트랜잭션으로 감싸거나 idempotent key 도입"
+
+---
+
 ## 공통 출력 포맷 (모든 축 동일)
 
 ```yaml

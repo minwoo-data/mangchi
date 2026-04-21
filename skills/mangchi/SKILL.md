@@ -82,7 +82,7 @@ Claude Max $200 경제(Claude 토큰 풍부, Codex 토큰 희소)에 맞춰 설�
 
 </details>
 
-## 5개 리뷰 축 + `necessity` opt-in
+## 5개 리뷰 축 + `necessity` / `robustness` opt-in
 
 자세한 프롬프트는 `axes.md`. **스키마는 `axes.md` §"공통 출력 포맷"이 SSOT** (single source of truth).
 
@@ -94,8 +94,11 @@ Claude Max $200 경제(Claude 토큰 풍부, Codex 토큰 희소)에 맞춰 설�
 | **performance** | 불필요한 I/O, N+1, 비효율 자료구조 있는가? | ✓ |
 | **design** | SRP/결합도/의존 방향/테스트 용이성 있는가? | ✓ |
 | **necessity** | 이 추가가 정말 필요한가? (YAGNI·Occam) | opt-in (`--include-axes=necessity`) |
+| **robustness** | 동시성·장애복구·데이터무결성·상태전이 4축에서 버티는가? | opt-in (`--include-axes=robustness`) |
 
-`necessity`는 "제거/축약" 판단 — refinement보다 greenfield 판단에 가까워 default 제외.
+`necessity`는 "제거/축약" 판단, `robustness`는 runtime 장애 시나리오 probing. 둘 다 default 제외 — `necessity`는 greenfield 성격이라, `robustness`는 순수 함수/stateless 코드에선 해당 없어 signal 0이라.
+
+둘 다 동시에 켜려면: `--include-axes=necessity,robustness`.
 
 ## 워크플로우 (라운드 N)
 

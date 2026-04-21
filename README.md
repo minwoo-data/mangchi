@@ -98,7 +98,7 @@ Natural-language triggers also work: *"망치로 다듬어줘"*, *"codex로 반�
 
 See `skills/mangchi/references/usage.md` for every flag and more examples.
 
-## The five axes (default) + `necessity` opt-in
+## The five axes (default) + `necessity` / `robustness` opt-in
 
 | Axis | Question it asks | Default |
 |---|---|---|
@@ -108,9 +108,14 @@ See `skills/mangchi/references/usage.md` for every flag and more examples.
 | `performance` | Where is it wasting I/O, memory, or cycles? | ✓ |
 | `design` | Will this still be maintainable in a year? | ✓ |
 | `necessity` | Is this new code necessary, or does existing infra cover it? (YAGNI) | opt-in via `--include-axes=necessity` |
+| `robustness` | Does it survive on concurrency / failure-recovery / data-integrity / state-transitions? | opt-in via `--include-axes=robustness` |
 
 Each round uses exactly one axis. **Adjacent rounds cannot repeat an axis** —
 rotation is enforced so you don't get five "correctness" rounds in a row.
+
+`robustness` is a 4-sub-axis runtime-failure probe — the reviewer must walk all four sub-axes (concurrency, failure & recovery, data integrity, state transitions) per round, or mark N/A with reason. It's orthogonal to `correctness` (which asks "does it meet its contract on the happy path?") — `robustness` asks "does it survive adversarial runtime conditions?". Opt-in because pure/stateless code has no realistic signal on these axes.
+
+To enable both opt-in axes: `--include-axes=necessity,robustness`.
 
 ## Termination (v2 schema)
 

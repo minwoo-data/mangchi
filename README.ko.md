@@ -59,7 +59,7 @@ Mangchi가 타깃하는 지점은 **"코드는 있는데 더 견고해져야 한
 
 ---
 
-## 5개 리뷰 축 + `necessity` opt-in
+## 5개 리뷰 축 + `necessity` / `robustness` opt-in
 
 각 라운드는 **정확히 하나의 축**만 사용. **인접한 두 라운드는 같은 축을 반복할 수 없음** (로테이션 강제).
 
@@ -71,6 +71,11 @@ Mangchi가 타깃하는 지점은 **"코드는 있는데 더 견고해져야 한
 | `performance` | I/O, 메모리, CPU를 어디서 낭비하는가? | ✓ |
 | `design` | 1년 뒤에도 유지 가능한 설계인가? | ✓ |
 | `necessity` | 이 추가가 정말 필요한가? 기존 인프라로 해결되지 않는가? (YAGNI) | opt-in — `--include-axes=necessity` |
+| `robustness` | 동시성·장애복구·데이터무결성·상태전이 4축에서 버티는가? | opt-in — `--include-axes=robustness` |
+
+`robustness`는 runtime 장애 시나리오 probe — 리뷰어가 4개 sub-axis(concurrency / failure & recovery / data integrity / state transitions)를 전부 순회 (해당 없으면 N/A with reason 명시). `correctness`가 "해피 패스에서 계약을 만족하는가"라면 `robustness`는 "adversarial runtime에서 버티는가" — 직교하는 질문. 순수 함수·stateless 코드엔 신호가 없으므로 opt-in.
+
+둘 다 켜려면: `--include-axes=necessity,robustness`.
 
 ---
 

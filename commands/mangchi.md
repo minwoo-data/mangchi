@@ -28,7 +28,9 @@ Inspect `$ARGUMENTS` to determine the action:
 | `<file>` | Start a new refinement session on `<file>` (read/write on `docs/refinement/mangchi/<slug>/updated.*` only, original untouched) |
 | `<file> --apply=original` | Same as above, BUT also Edit the original file after each round |
 | `<file> --only-axes=a,b,c` | Restrict axis rotation to the given subset (replaces default five) |
-| `<file> --include-axes=necessity` | Default five + opt-in axis (currently only `necessity`) |
+| `<file> --include-axes=necessity` | Default five + `necessity` opt-in axis |
+| `<file> --include-axes=robustness` | Default five + `robustness` opt-in (concurrency / failure-recovery / data-integrity / state-transitions, all 4 sub-axes per round) |
+| `<file> --include-axes=necessity,robustness` | Default five + both opt-in axes |
 | `<file> --start-axis=<axis>` | Use `<axis>` for R1 instead of default `correctness` |
 | `<file> --gate "<cmd>"` | Require external command (e.g. `pytest -x`) exit 0 before CONVERGED |
 | `<file> --gate-every-round "<cmd>"` | Run gate at every round (not just termination) |

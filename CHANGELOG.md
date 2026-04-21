@@ -5,6 +5,33 @@ All notable changes to the Mangchi plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-04-21
+
+### Added
+- **`robustness` axis (opt-in)** — seventh review axis probing runtime failure
+  modes. One reviewer round covers 4 orthogonal sub-axes that must each be
+  walked: concurrency, failure & recovery, data integrity, state transitions.
+  Sub-axes with no realistic signal for the target are explicitly marked
+  `N/A — <reason>` rather than skipped silently.
+- **`--include-axes=robustness`** flag — parallel to `--include-axes=necessity`.
+  Both opt-in axes can be combined: `--include-axes=necessity,robustness`.
+
+### Rationale
+- `correctness` asks "does it meet its contract on the happy path?" —
+  `robustness` asks the orthogonal "does it survive adversarial runtime?".
+  Past case studies had runtime-failure findings being mis-filed under
+  `correctness` (single-thread race) or `security` (TOCTOU), losing signal.
+- Opt-in rather than default because pure/stateless code (formatters, pure
+  functions, deterministic parsers) has zero realistic robustness signal —
+  forcing a round on every target would burn tokens for no reason.
+- Sub-axis enumeration forced per round: each finding must name a concrete
+  scenario (which input, which timing, which second actor) — "race condition
+  might exist" findings are auto-demoted to `severity: LOW`.
+
+### Schema
+- No schema_version bump. Reuses v1 YAML output format unchanged. Only the
+  `axes.md` content grows.
+
 ## [0.2.2] — 2026-04-17
 
 Docs release — adds Case Study B to evidence base. No code or algorithm
