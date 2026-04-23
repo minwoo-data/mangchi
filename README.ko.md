@@ -127,17 +127,17 @@ codex login    # 또는 OPENAI_API_KEY 환경변수 설정
 
 ### 플러그인 설치
 
-```bash
-# 권장: Claude Code 플러그인 마켓플레이스
-/plugin marketplace add minwoo-data/mangchi
-/plugin install mangchi@mangchi
+`mangchi` 는 haroom 플러그인 (ddaro, prism, triad) 과 함께 **haroom_plugin** aggregator 마켓플레이스를 통해 배포됩니다.
 
-# 또는 수동 설치 (marketplace route가 안 되는 환경)
-git clone https://github.com/minwoo-data/mangchi ~/.claude/skills/mangchi-src
-cp -r ~/.claude/skills/mangchi-src/skills/mangchi ~/.claude/skills/
+```bash
+# 1. haroom_plugin 마켓플레이스 등록 (처음 한 번만)
+/plugin marketplace add https://github.com/minwoo-data/haroom_plugin.git
+
+# 2. 플러그인 설치
+/plugin install mangchi
 ```
 
-설치 후 Claude Code **재시작** 필수. 마켓플레이스 경로로 설치하면 이후 업데이트는 `/plugin update mangchi@mangchi` 한 줄로 끝 — re-clone 불필요.
+설치 후 Claude Code **재시작** 필수. 업데이트는 `/plugin update` 한 줄로 끝 — aggregator가 설치된 모든 haroom 플러그인을 한 번에 갱신.
 
 ---
 

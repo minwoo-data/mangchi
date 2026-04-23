@@ -68,17 +68,17 @@ codex login    # or set OPENAI_API_KEY
 
 ### Plugin install
 
-```bash
-# Preferred: via Claude Code plugin marketplace
-/plugin marketplace add minwoo-data/mangchi
-/plugin install mangchi@mangchi
+`mangchi` is distributed through the **haroom_plugin** aggregator marketplace along with the other haroom plugins (ddaro, prism, triad).
 
-# Or manual: clone into your Claude Code skills path
-git clone https://github.com/minwoo-data/mangchi ~/.claude/skills/mangchi-src
-cp -r ~/.claude/skills/mangchi-src/skills/mangchi ~/.claude/skills/
+```bash
+# 1. Add the haroom_plugin marketplace (one time)
+/plugin marketplace add https://github.com/minwoo-data/haroom_plugin.git
+
+# 2. Install
+/plugin install mangchi
 ```
 
-Restart Claude Code after install. After the marketplace route, upgrades are a single `/plugin update mangchi@mangchi` — no re-clone needed.
+Restart Claude Code after install. Upgrades are a single `/plugin update` — the aggregator pulls updates for every haroom plugin you have installed.
 
 ## Usage
 
