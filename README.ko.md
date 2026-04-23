@@ -2,7 +2,7 @@
 
 **Language**: [English](README.md) · **한국어**
 
-**한 AI 모델로만 코드를 다듬으면 같은 편향·맹점이 반복되어, 같은 버그가 여러 라운드를 통과해 남지는 않나요?** mangchi는 Claude가 편집하고 Codex가 5개 축(정확성 / 보안 / 가독성 / 성능 / 설계)을 순환하며 비판하는 교차 검증 루프로, 한 모델의 사각지대를 다른 모델이 잡아주며 코드가 수렴할 때까지 반복합니다.
+**한 AI 모델로만 코드를 다듬으면 같은 편향·맹점이 반복되어, 같은 버그가 여러 라운드를 통과해 남지는 않나요?** mangchi는 Claude가 편집하고 Codex가 5개 축(correctness / security / readability / performance / design)을 순환하며 비판하는 교차 검증 루프로, 한 모델의 사각지대를 다른 모델이 잡아주며 코드가 수렴할 때까지 반복합니다.
 
 > 기존 코드 파일 하나를 cross-model 반복 리뷰로 망치질합니다. Claude가 수정·판단하고 Codex CLI가 축별(correctness / security / readability / performance / design)로 비판. 수렴하거나 cap에 도달할 때까지 반복.
 

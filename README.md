@@ -1,4 +1,4 @@
-# 망치 (Mangchi) - Iterative Code Refinement
+# Mangchi - Iterative Code Refinement
 
 **Language**: **English** · [한국어](README.ko.md)
 
@@ -122,7 +122,7 @@ Restart Claude Code after install. Upgrades are a single `/plugin update` - the 
 /mangchi --stop src-services-auth-py                  # force close with whatever's in state
 ```
 
-Natural-language triggers also work: *"망치로 다듬어줘"*, *"codex로 반복 리뷰해줘"*.
+Natural-language triggers also work (e.g. *"refine with mangchi"*, *"cross-model review"*). Korean triggers are documented in the Korean README.
 
 See `skills/mangchi/references/usage.md` for every flag and more examples.
 
