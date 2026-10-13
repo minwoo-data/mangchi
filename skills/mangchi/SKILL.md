@@ -9,7 +9,7 @@ description: Iterative code refinement - Claude edits, Codex CLI adversarially r
 
 - **대상**: 이미 존재하는 단일 코드 파일 (≤ 2000 LoC 권장). Greenfield → pumasi.
 - **역할**: Claude = 코더 + 판정. Codex CLI = 적대적 리뷰 + Claude의 REJECT 재검증.
-- **라운드**: 기본 5축 순환 (correctness/security/readability/performance/design). `necessity`는 opt-in. R5 hard cap.
+- **라운드**: 기본 5축 순환 (correctness/security/readability/performance/design). `necessity`·`robustness`는 opt-in (stateful 코드면 preflight가 robustness 힌트). R5 hard cap.
 - **Codex 호출**: 라운드당 최대 2회 (review + verify). `--no-verify`면 1회 (adversarial 가드 포기).
 - **종결**:
   ① 2 consecutive verified rounds - ACCEPT diff-검증 통과 + DISAGREE 0
@@ -24,15 +24,7 @@ description: Iterative code refinement - Claude edits, Codex CLI adversarially r
 
 ## 철학 - Pumasi와 정확히 반대
 
-| | pumasi | **mangchi** |
-|---|---|---|
-| 주연 | Codex (구현) | **Claude (구현 + 수정)** |
-| 조연 | Claude (설계/감독) | **Codex (비판 + 검증)** |
-| 불변식 | "Claude는 코드 안 짠다" | **"Codex는 코드 안 짠다"** |
-| 토큰 | Codex 많이, Claude 적게 | **Claude 많이, Codex 적게** |
-| 작업 흐름 | 병렬 구현 → 게이트 | **직렬 라운드, 축 로테이션, 이중 Codex 호출** |
-
-Claude Max $200 경제(Claude 토큰 풍부, Codex 토큰 희소)에 맞춰 설계.
+pumasi는 "Codex가 구현, Claude가 감독"; mangchi는 **"Claude가 구현+수정, Codex가 비판+검증"** - 불변식이 뒤집힌다 ("Codex는 코드 안 짠다"). 직렬 라운드 · 축 로테이션 · 라운드당 Codex ≤2콜. Claude Max 경제(Claude 토큰 풍부, Codex 토큰 희소)에 맞춘 설계. 비교표는 §"pumasi / triad와의 관계".
 
 ## 핵심 불변식
 
@@ -46,10 +38,7 @@ Claude Max $200 경제(Claude 토큰 풍부, Codex 토큰 희소)에 맞춰 설�
 
 ## 요구사항
 
-- **Bash 4+**. `declare -A` 등 associative array 사용. Windows는 Git Bash (4.4+) 또는 WSL.
-- **Codex CLI 설치 권장**. 없으면 대화형 확인 후에만 self-review 가능.
-- **Git** (diff 측정 `git diff -w --numstat`).
-- **Python 3.8+** (YAML 응답 파싱, `python -c "import yaml; ..."`).
+Bash 4+ (Windows는 Git Bash 4.4+/WSL) · Git (`git diff -w --numstat`) · Python 3.8+ + PyYAML (응답 파싱) · Codex CLI 권장 (없으면 대화형 확인 후 self-review). 전부 `scripts/preflight.sh`가 한 번에 검사한다.
 
 ## 트리거 (CLI flags)
 
@@ -96,7 +85,7 @@ Claude Max $200 경제(Claude 토큰 풍부, Codex 토큰 희소)에 맞춰 설�
 | **necessity** | 이 추가가 정말 필요한가? (YAGNI·Occam) | opt-in (`--include-axes=necessity`) |
 | **robustness** | 동시성·장애복구·데이터무결성·상태전이 4축에서 버티는가? | opt-in (`--include-axes=robustness`) |
 
-`necessity`는 "제거/축약" 판단, `robustness`는 runtime 장애 시나리오 probing. 둘 다 default 제외 - `necessity`는 greenfield 성격이라, `robustness`는 순수 함수/stateless 코드에선 해당 없어 signal 0이라.
+`necessity`는 "제거/축약" 판단, `robustness`는 runtime 장애 시나리오 probing. 둘 다 default 제외 - `necessity`는 greenfield 성격이라, `robustness`는 순수 함수/stateless 코드에선 해당 없어 signal 0이라. **동시성/레이스는 robustness가 단일 소유자**다 (correctness는 single-threaded 계약, security는 공격자가 타이밍을 조작하는 TOCTOU만) - stateful 코드에서 레이스를 잡고 싶으면 robustness를 켜야 한다. preflight가 stateful 마커를 보면 힌트를 낸다.
 
 둘 다 동시에 켜려면: `--include-axes=necessity,robustness`.
 
@@ -104,95 +93,16 @@ Claude Max $200 경제(Claude 토큰 풍부, Codex 토큰 희소)에 맞춰 설�
 
 ### Phase 0: 초기화 (R1에만)
 
-**Consolidated preflight** - 모든 환경 의존성을 한 번에 검증 후 시작.
+**Consolidated preflight** - 환경·입력·크기·축 커버리지·Codex 유무·작업 디렉토리·state.json을 한 번에 처리하는 스크립트. 산문으로 재현하지 말고 실행한다:
 
 ```bash
-FILE="$1"
-
-# ──────────────────────────────────────────────
-# Step 1: 환경 의존성 (Bash / Python / Git / Codex / PyYAML)
-# ──────────────────────────────────────────────
-preflight_env() {
-  local fail=0
-  [ "${BASH_VERSINFO[0]}" -ge 4 ] || {
-    echo "[ERROR] Bash 4+ required (declare -A). Current: ${BASH_VERSION}"
-    echo "  macOS: brew install bash"
-    echo "  Windows: install Git Bash 4.4+ or use WSL"
-    fail=1
-  }
-  command -v git >/dev/null 2>&1 || {
-    echo "[ERROR] git not in PATH (diff measurement requires it)"
-    fail=1
-  }
-  command -v python >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 || {
-    echo "[ERROR] Python 3.8+ not found (YAML parsing)"
-    fail=1
-  }
-  python -c "import yaml" 2>/dev/null || python3 -c "import yaml" 2>/dev/null || {
-    echo "[ERROR] PyYAML missing. Install: pip install pyyaml"
-    fail=1
-  }
-  command -v codex >/dev/null 2>&1 || {
-    echo "[WARN] Codex CLI missing. (See 'Codex 부재 시 동작' section for options)"
-    # Not a hard fail - handle_codex_missing routes the user
-  }
-  [ "$fail" -eq 0 ] || exit 1
-}
-preflight_env
-
-# ──────────────────────────────────────────────
-# Step 2: 입력 유효성 + 경로 정규화
-# ──────────────────────────────────────────────
-[ -f "$FILE" ] || { echo "[ERROR] File not found: $FILE"; exit 1; }
-FILE="${FILE//\\//}"   # Windows path normalization (Git Bash)
-
-# ──────────────────────────────────────────────
-# Step 3: 파일 크기 가드
-# ──────────────────────────────────────────────
-LOC=$(wc -l < "$FILE")
-BYTES=$(wc -c < "$FILE")
-if { [ "$LOC" -gt 2000 ] || [ "$BYTES" -gt 204800 ]; } && [ -z "$FORCE" ]; then
-  echo "[ERROR] File exceeds limits (LoC=$LOC, bytes=$BYTES)."
-  echo "  Use --force to override (Codex context window may still reject)."
-  exit 1
-fi
-
-# ──────────────────────────────────────────────
-# Step 4: 축 커버리지 경고 (2-PASS 종결 경로)
-# ──────────────────────────────────────────────
-if has_only_axes && ! ( contains "$ONLY_AXES" "correctness" && contains "$ONLY_AXES" "security" ); then
-  echo "[WARN] --only-axes excludes correctness or security."
-  echo "       2-PASS termination DISABLED. Converge via R5 cap or --gate."
-fi
-
-# ──────────────────────────────────────────────
-# Step 5: Codex CLI 부재 시 라우팅 (있으면 skip)
-# ──────────────────────────────────────────────
-if ! command -v codex >/dev/null 2>&1; then
-  handle_codex_missing   # 대화형 확인 / abort / self-review (see below)
-fi
-
-# ──────────────────────────────────────────────
-# Step 6: Slug + 작업 디렉토리 + 백워드 호환 경고
-# ──────────────────────────────────────────────
-SLUG=$(compute_slug "$FILE")
-DIR="docs/refinement/mangchi/$SLUG"
-mkdir -p "$DIR"
-
-OLD_DIR="docs/refinement/$SLUG"
-if [ -d "$OLD_DIR" ] && [ ! -L "$OLD_DIR" ]; then
-  echo "[WARN] Legacy path detected: $OLD_DIR."
-  echo "       New runs use $DIR. Move manually if continuing old session."
-fi
-
-# ──────────────────────────────────────────────
-# Step 7: 작업본 + 스냅샷 + state.json
-# ──────────────────────────────────────────────
-EXT="${FILE##*.}"
-cp "$FILE" "$DIR/updated.$EXT"
-cp "$FILE" "$DIR/source-snapshot.$EXT"
-init_state "$DIR/state.json"
+FORCE= ONLY_AXES= INCLUDE_AXES= START_AXIS= GATE_CMD= bash "<skill dir>/scripts/preflight.sh" "<target-file>"
 ```
+
+- 검사 순서: Bash 4+ / git / Python 3.8+ / PyYAML / Codex → 파일 존재 + Windows 경로 정규화 → 2000 LoC·200KB 가드(`FORCE=1` bypass) → `--only-axes` 커버리지 경고 → 보안 민감 파일명 + Codex 부재 시 즉시 거부 → **robustness 힌트** → slug·`docs/refinement/mangchi/<slug>/` 생성 + legacy 경로 경고 → `updated.<ext>`·`source-snapshot.<ext>`·`state.json` 초기화.
+- 성공 시 stdout에 `SLUG= DIR= EXT= LOC= BYTES= CODEX= SECURITY_SENSITIVE= STATEFUL_HINT=`를 출력한다. 이 값을 이후 Phase에서 쓴다. exit 1이면 stderr 메시지를 그대로 사용자에게 보이고 중단.
+- **robustness 힌트**: 대상 파일에 stateful 마커(`threading|asyncio|await|Lock(|transaction|commit(|rollback|INSERT|UPDATE|DELETE|session.|cursor.|fetch(|requests.|httpx|state_machine|status =`)가 있으면 `[HINT] stateful code detected — consider --include-axes=robustness`를 출력한다. **자동 활성화는 하지 않는다** - 사용자가 플래그를 명시해야 축이 켜진다. `STATEFUL_HINT=1`인데 robustness가 꺼져 있으면 Claude는 R1 시작 전에 한 줄로 되묻는다(대화형) 또는 CONVERGED.md Known Limits에 "robustness 미실행" 한 줄을 남긴다(비대화형).
+- Codex 부재 시의 대화형 y/N 라우팅은 스크립트가 아니라 §"Codex 부재 시 동작"을 따른다 (스크립트는 `CODEX=0`만 보고).
 
 ### Phase 1: 축 선택 (Claude)
 
@@ -201,85 +111,40 @@ init_state "$DIR/state.json"
 2. **Carryover DISAGREE**: state.json에 `status: PENDING` 이슈의 원래 축이 directly available하면 그 축. (단 same-axis ban 우선 - carryover 축이 직전과 같으면 다음으로 ban 해제된 축 중 신호 강한 것.)
 3. **Signal heuristic**: 남은 축 중 이전까지 issues 누적이 많은 축.
 
-**R1 규칙**:
-- `--start-axis=<axis>` 있으면 그 축.
-- 없으면 `correctness`.
+**R1 규칙**: `--start-axis=<axis>`가 있으면 그 축, 없으면 `correctness`.
+
+**추가 ban**: 모든 issue가 REJECT되고 verify가 전부 AGREE로 종결된 축은 다음 라운드에도 재리뷰 금지 (진자 운동 방지).
 
 ### Phase 2: Codex Review 호출 (shell-injection-safe)
 
-**Token pre-send estimate (single cap, 180K)**:
-```python
-est_tokens = char_count(prompt) / 4 * 1.3   # 1.3 = safety factor for punctuation-heavy code
-if est_tokens >= 180_000:   # hard context-window guard (model limit)
-    abort_round("single-call context window exceeded (>180K). Split the file.")
-```
+**Pre-send guard**: 프롬프트 파일이 **완전히 조립된 뒤** `char/4*1.3 ≥ 180K`면 라운드 abort ("context window exceeded. Split the file."). 공식·누적 가드는 §"토큰 예산".
 
-**Per-call context window guard (180K)**: Codex model (gpt-4o 등) context ≈ 200K. 여유 두고 180K cap. 누적 폭주는 **cumulative 500K** 가드가 별도로 잡음 (아래 참조).
+**호출 불변 (shell injection 차단)** - `CODEX="${CODEX:-codex exec --dangerously-bypass-approvals-and-sandbox}"`:
+- **argv 금지** - `$CODEX "$PROMPT_TEXT"` 패턴 절대 금지. **tempfile + stdin** (`$CODEX < "$PROMPT_FILE"`)만 허용.
+- **Heredoc quoted** (`<<'EOF'`)로 정적 본문 작성 - shell expansion 차단.
+- **동적 내용은 전부 `cat <file> >> "$PROMPT_FILE"`** - target source, 이전 라운드 decisions digest, FORCED_ACCEPT 목록 포함. `echo "$VAR" >>`처럼 unquoted expansion 금지 (Codex가 reason 필드에 backtick/`$(...)`를 넣어올 수 있다).
+- FORCED_ACCEPT 식별자는 `R{n}.{axis}#{id}` (예 `R1.correctness#2`) - round 내 id는 round 간 재사용되므로 prefix 필수.
+- `--dangerously-bypass-approvals-and-sandbox`는 Codex 자체의 승인 프롬프트/샌드박스만 끈다. mangchi는 Codex를 read-only로 쓰므로 호스트에 쓰기 없음. 인증은 Codex CLI 몫 (`codex login` / `OPENAI_API_KEY`).
 
-**호출** (tempfile + stdin, argv 금지):
 ```bash
-PROMPT_FILE="$DIR/round-${N}.prompt.txt"
-CODEX_OUT="$DIR/round-${N}.codex.txt"
-
-# Heredoc quoted로 작성 (shell expansion 차단)
+PROMPT_FILE="$DIR/round-${N}.prompt.txt"; CODEX_OUT="$DIR/round-${N}.codex.txt"
 cat > "$PROMPT_FILE" <<'PROMPT_EOF'
-# ... 전체 프롬프트 ... 
-# 파일 본문은 별도 cat으로 append (quoted heredoc 안에서 또 heredoc 넣기 어려움):
+# (정적 지시문: 역할, 이번 라운드 축, 출력 포맷 = axes.md §공통 출력 포맷, schema_version 1)
 PROMPT_EOF
-
-# 축 rubric
-cat "path/to/axis_rubric.md" >> "$PROMPT_FILE"
-
-# 대상 파일 본문 - cat append (여기서 shell 해석 없음)
-echo '--- BEGIN FILE ---' >> "$PROMPT_FILE"
-cat "$DIR/updated.$EXT" >> "$PROMPT_FILE"
-echo '--- END FILE ---' >> "$PROMPT_FILE"
-
-# 지난 라운드 decisions (R ≥ 2)
-# ...
-
-# stdin 리다이렉션으로 Codex 호출
-codex exec --dangerously-bypass-approvals-and-sandbox \
-  < "$PROMPT_FILE" \
-  > "$CODEX_OUT"
+cat "<skill dir>/axes.md"            >> "$PROMPT_FILE"   # 해당 축 rubric (전체 파일 또는 해당 섹션 발췌 파일)
+echo '--- BEGIN FILE ---'            >> "$PROMPT_FILE"
+cat "$DIR/updated.$EXT"              >> "$PROMPT_FILE"   # 전문, 축약 금지
+echo '--- END FILE ---'              >> "$PROMPT_FILE"
+# R ≥ 2: 지난 라운드 ACCEPT/REJECT digest, DISAGREE 이월 의제, FORCED_ACCEPT 목록(재제기 금지) - 전부 파일에서 cat append
+$CODEX < "$PROMPT_FILE" > "$CODEX_OUT"
 ```
-
-> `--dangerously-bypass-approvals-and-sandbox` 플래그: Codex가 자신의 파일 시스템 샌드박스/승인 프롬프트를 건너뛰도록 하는 Codex CLI 옵션. mangchi는 Codex를 read-only로 사용하므로 파일 쓰기는 없음. 이 플래그는 Codex 자체 동작에만 영향. 호스트 시스템 보안엔 영향 없음.
-
-**프롬프트 구성**:
-- 해당 축의 full rubric (`axes.md`)
-- `updated.<ext>` 전체 내용 (축약 금지)
-- 지난 라운드 ACCEPT/REJECT 요약 (R ≥ 2)
-- DISAGREE 이월 의제 (optional)
-- **이미 FORCED_ACCEPT된 이슈 ID 목록 - 재제기 금지 명시**
-- 출력 포맷: `axes.md` §"공통 출력 포맷" 참조 (schema_version: 1)
 
 ### Phase 3: 응답 파싱 + 스키마 검증
 
-```python
-# 핵심 로직 (Python 3)
-import yaml
-try:
-    response = yaml.safe_load(open(CODEX_OUT))
-except yaml.YAMLError as e:
-    retry_codex(reason=f"YAML parse error: {e}")   # 1회만
-    # 재시도 또 실패 시 abort
+`yaml.safe_load`로 파싱 후 필수 필드 검증 (스키마 SSOT: `axes.md` §"공통 출력 포맷"):
+`axis ∈ VALID_AXES` · `verdict ∈ {PASS, REVISE}` · REVISE면 `issues` 비어있지 않은 list · 각 issue에 `id`(int) · `severity ∈ {HIGH, MEDIUM, LOW}` · `locus`에 `:` 포함(`file:LINE`) · `problem` · `proposed_fix` · `confidence`.
 
-# 필수 필드 검증
-assert response["axis"] in VALID_AXES
-assert response["verdict"] in {"PASS", "REVISE"}
-if response["verdict"] == "REVISE":
-    assert isinstance(response["issues"], list) and len(response["issues"]) >= 1
-    for issue in response["issues"]:
-        assert isinstance(issue["id"], int)
-        assert issue["severity"] in {"HIGH", "MEDIUM", "LOW"}
-        assert ":" in issue["locus"]   # "file:LINE" 형식
-        # ... 기타 필드
-```
-
-실패 시:
-- Attempt 1: Codex에 "이전 응답 schema 위반: {error}. Re-emit complete YAML matching schema." 프롬프트 1회 재전송.
-- Attempt 2도 실패: `[ERROR] Codex output invalid after retry` + abort (state.json.last_invalid_codex_output에 raw 저장).
+실패 시: Attempt 1은 "이전 응답 schema 위반: {error}. Re-emit complete YAML matching schema."로 **1회** 재전송. Attempt 2도 실패면 `[ERROR] Codex output invalid after retry` + abort (`state.json.last_invalid_codex_output`에 raw 저장).
 
 ### Phase 4: Claude 판단 (ACCEPT/REJECT)
 
@@ -313,56 +178,15 @@ git diff -w --numstat "$DIR/updated.$EXT"   # whitespace 무시
 
 ### Phase 6: Codex 재검증 (verification loop)
 
-**Skip 조건** (다음 중 하나):
-- REJECT 0개
-- `--no-verify` 플래그
-- Self-review 모드 (FORCED_ACCEPT 메커니즘도 동시 비활성)
+**Skip 조건** (하나라도): REJECT 0개 · `--no-verify` · self-review 모드 (이 경우 FORCED_ACCEPT도 비활성).
 
-**호출 (REJECT 이슈만 + post-edit locus ±10줄 context)**:
-
-> **Context는 pre-edit이 아니라 post-edit `updated.<ext>`**. ACCEPT 적용 후 라인 번호가 이동했을 수 있으므로 verify는 최신 파일 상태를 참조해야 함.
-> **Clamp 룰**: ±10줄이 파일 경계 밖이면 `max(0, start-10)` ~ `min(file_len, end+10)` 로 클램프. Locus가 파일 끝 근처일 때 context가 파일 밖으로 흘러넘치지 않도록.
-
-```bash
-VERIFY_PROMPT="$DIR/round-${N}.verify.prompt.txt"
-VERIFY_OUT="$DIR/round-${N}.verify.txt"
-
-cat > "$VERIFY_PROMPT" <<'VERIFY_EOF'
-# Codex가 Claude의 REJECT 근거를 검증한다.
-# 아래 각 이슈에 대해 AGREE(종결) 또는 DISAGREE(유지 주장)로 응답.
-# DISAGREE는 post-edit 코드 상의 구체 근거 (file:line) 인용 필수.
-# ...
-VERIFY_EOF
-
-# REJECT 이슈 + post-edit context append
-append_rejected_issues_with_post_edit_context >> "$VERIFY_PROMPT"
-
-codex exec --dangerously-bypass-approvals-and-sandbox \
-  < "$VERIFY_PROMPT" \
-  > "$VERIFY_OUT"
-```
+**호출**: Phase 2와 같은 tempfile+stdin 패턴 (`round-${N}.verify.prompt.txt` → `round-${N}.verify.txt`). 프롬프트에는 **REJECT 이슈만** + 각 locus의 **post-edit `updated.<ext>` ±10줄** context (ACCEPT 적용 후 줄 번호가 밀리므로 pre-edit 금지; 파일 경계는 `max(0,start-10)`~`min(len,end+10)`로 clamp). Codex는 이슈별 `AGREE`(종결) / `DISAGREE`(유지 - post-edit 코드 `file:line` 인용 필수)로 답한다 (포맷: `axes.md` §"Verify 호출 전용 포맷").
 
 **처리**:
-- `AGREE`: 이슈 종결, `issues[].status: RESOLVED`.
-- `DISAGREE`: 이슈 carry over, `issues[].status: PENDING`, `history[].verification.verdict: DISAGREE`.
-- 같은 `issue_id`가 **2라운드 연속 DISAGREE** → 시스템이 `FORCED_ACCEPT`로 승격 (Claude 직접 선택 아님), `forced_accept_count += 1`.
-- **Abort 정책 (γ, configurable)**: `forced_accept_count ≥ --force-accept-threshold` (default **2**) → abort + 구조화 리포트:
-
-```
-[ABORT] forced_accept_count reached N. Disputes:
-  1. R{n}.{axis}#{id} | locus=auth.py:42 | Claude: "<reason>" | Codex: "<reason>" | resolution: FORCED_ACCEPT pending
-  2. ...
-Session state preserved. Review state.json and resume with:
-  /mangchi --continue <slug>   # after manually arbitrating the disputes
-```
-
-**정책 설명**:
-- **Default (threshold=2, adoption-friendly)**: 첫 FORCED_ACCEPT 후 경고 로깅만, 2번째에서 abort. 작은 의견 차이 1건은 flow 중단 없이 흡수. 대부분의 첫-실행 사용자가 수렴까지 도달.
-- **Strict (threshold=1)**: 첫 FORCED_ACCEPT 즉시 abort. Adversarial 가치 극대화, 의견 차 한 건도 묵과 안 함. 보안 심사 / 회계 로직 / 암호학 코드에 권장.
-- **Permissive (threshold≥3)**: 의견 차이 많은 legacy 파일에 실용적. N-1회 forced-accept 적용 후 N번째에 abort.
-- **Resume**: abort된 세션도 `--continue <slug>`로 재개 가능. state.json에서 disputed issue들을 사용자가 수동 arbitrate 후 재실행.
-
-**AGREE on ACCEPT without diff (symmetric guard)**: verify 없이도 Phase 5 no-op ACCEPT 검출이 ACCEPT 오용을 막음. AGREE가 붙은 ACCEPT여도 `diff_verified: false`면 "2 verified rounds" 카운트에서 제외 (즉 ACCEPT + AGREE 조합도 실제 수정 없으면 수렴 신호 아님).
+- `AGREE` → `issues[].status: RESOLVED`. `DISAGREE` → `PENDING` + `history[].verification.verdict: DISAGREE`, 다음 라운드 선행 의제.
+- 같은 issue가 **2라운드 연속 DISAGREE** → 시스템이 `FORCED_ACCEPT`로 승격 (Claude 선택 아님), `forced_accept_count += 1`.
+- `forced_accept_count ≥ --force-accept-threshold` (default **2**) → abort + 구조화 리포트 (`[ABORT] forced_accept_count reached N. Disputes: R{n}.{axis}#{id} | locus | Claude: ... | Codex: ... ` + "Review state.json and resume with /mangchi --continue <slug>"). threshold=1은 strict(보안/회계/암호학 권장), ≥3은 permissive(legacy 파일). abort된 세션은 수동 arbitration 후 `--continue` 가능.
+- **대칭 가드**: AGREE가 붙은 ACCEPT라도 `diff_verified: false`면 "2 verified rounds" 카운트에서 제외 - 실제 수정 없는 ACCEPT는 수렴 신호가 아니다.
 
 ### Phase 7: 종결 판정
 
@@ -402,31 +226,12 @@ R4 종료 시점에 `correctness` 또는 `security` 축이 **한 번도 실행�
 
 ### Phase 8: INDEX.md rewrite
 
-매 라운드 종료 시 요약표 재작성 (abort 경로에서도 남김):
-
-```markdown
-# Mangchi: <slug>
-
-| Round | Axis        | Verdict  | ACCEPT | Verify |
-|-------|-------------|----------|--------|--------|
-| R1    | correctness | REVISE   | 2/3    | AGREE 1, DISAGREE 0 |
-| R2    | security    | PASS     | -      | - (skipped) |
-
-**Status**: active | converged | aborted (reason)
-**See**: round-N.md for details, state.json for full record
-```
+매 라운드 종료 시 `INDEX.md` 요약표를 통째로 재작성한다 (abort 경로에서도). 템플릿: `templates/index.md` (Round / Axis / Verdict / ACCEPT / Verify 표 + Status 줄).
 
 ### Phase 9: 다음 라운드 or 종료
 
 - 종결 → `state.json.status = "converged" | "aborted"`, `CONVERGED.md` 작성, 완료 메시지.
 - 미종결 → round N+1 진입, Phase 1으로.
-
-## 축 로테이션 규칙
-
-- 같은 축 2연속 리뷰 금지 (핵심 불변식 #5).
-- 모든 issue가 REJECT + 모두 verify AGREE로 종결된 축: 다음 라운드도 같은 축 재리뷰 금지.
-- 5축 (또는 necessity opt-in 시 6축) 한 번씩 썼으면 wrap 룰 이론적 존재 (R5 cap상 실제 도달은 `--include-axes=necessity`일 때 약간 가능).
-- **중복 금지**: 이 규칙은 핵심 불변식 #5와 중복이라 참조만 - 위에서 정의한 것을 그대로 따름.
 
 ## Codex 부재 시 동작
 
@@ -491,72 +296,13 @@ docs/refinement/mangchi/
     └── CONVERGED.md                 # 최종 리포트 (템플릿: converged.md)
 ```
 
-## state.json 스키마 (schema_version: 1)
+## state.json
 
-```json
-{
-  "schema_version": 1,
-  "slug": "src-routes-auth-py",
-  "started_at": "2026-04-16T10:00:00Z",
-  "self_review_mode": false,
-  "no_verify_mode": false,
-  "axes_opt_in": [],
-  "start_axis": "correctness",
-  "gate_cmd": null,
-  "gate_every_round": false,
-  "force_round_rounds": [],
-  "rounds": [
-    {
-      "n": 1,
-      "axis": "correctness",
-      "verdict": "REVISE",
-      "no_changes_suggested": false,
-      "diff_loc": 18,
-      "codex_tokens": {"review": 15234, "verify": 4821, "estimate_only": false},
-      "ended_at": "..."
-    }
-  ],
-  "issues": [
-    {
-      "id": 1,
-      "first_seen_round": 1,
-      "axis": "correctness",
-      "title": "null check missing",
-      "locus": "auth.py:42-45",
-      "severity": "HIGH",
-      "confidence": "HIGH",
-      "history": [
-        {
-          "round": 1,
-          "action": "ACCEPT | REJECT | FORCED_ACCEPT",
-          "reason": "... (REJECT는 file:line citation 포함)",
-          "diff_verified": true,
-          "verification": {"verdict": "AGREE | DISAGREE", "reason": "..."}
-        }
-      ],
-      "status": "RESOLVED | PENDING | FORCED_ACCEPT"
-    }
-  ],
-  "codex_tokens_total": 20055,
-  "forced_accept_count": 0,
-  "force_accept_threshold": 2,
-  "last_invalid_codex_output": null,
-  "status": "active | converged | aborted",
-  "termination_reason": null
-}
-```
+스키마는 `references/state-schema.md`가 SSOT (schema_version 1). `scripts/preflight.sh`가 초기화하고, 매 라운드 `rounds[]`·`issues[].history[]`에 append. 핵심 필드: `issues[].status` (RESOLVED | PENDING | FORCED_ACCEPT), `issues[].history[].diff_verified`, `forced_accept_count` / `force_accept_threshold`, `codex_tokens_total`, `status` (active | converged | aborted), `termination_reason`.
 
 ## 슬러그 규칙
 
-- 확장자 유지 + `/` → `-` + 특수문자 → `-` 치환.
-- 결과가 숫자 또는 dot(`.`)으로 시작하면 `_` 접두.
-- 결과가 빈 문자열이면 `unnamed-<timestamp>`.
-
-예:
-- `src/routes/auth.py` → `src-routes-auth-py`
-- `.bashrc` → `_bashrc`
-- `123config.yaml` → `_123config-yaml`
-- `a/b/c d.ts` → `a-b-c-d-ts` (공백도 `-`)
+`scripts/preflight.sh`의 `compute_slug`가 정본: `/`·공백·특수문자 → `-`, 확장자는 유지(`.`도 `-`), 숫자/dot으로 시작하면 `_` 접두, 빈 결과면 `unnamed-<timestamp>`. 예: `src/routes/auth.py` → `src-routes-auth-py`, `.bashrc` → `_bashrc`, `a/b/c d.ts` → `a-b-c-d-ts`.
 
 ## 토큰 예산
 
@@ -570,27 +316,6 @@ docs/refinement/mangchi/
   - ≥ **150K**: `[WARN]` 로그.
   - ≥ **500K**: abort + 구조화 리포트 (남은 의제 + 선택지 제시).
 - **Codex CLI가 usage 정보 미반환 시**: 추정치로 누적 근사 + `[WARN] Token tracking approximate` + `codex_tokens.estimate_only: true`.
-
-## Codex CLI 호출 규칙
-
-**환경 변수**:
-```bash
-CODEX="${CODEX:-codex exec --dangerously-bypass-approvals-and-sandbox}"
-```
-
-**불변 규칙**:
-- **argv 금지** - 절대 `$CODEX "$PROMPT_TEXT"` 패턴 쓰지 않음. Shell injection 벡터.
-- **tempfile + stdin 강제** - `$CODEX < "$PROMPT_FILE"` 만 허용.
-- **Heredoc quoted** (`<<'EOF'`) - prompt body 작성 시 shell expansion 차단.
-- **Dynamic content는 항상 파일 append** - target source, 이전 라운드 decisions digest, FORCED_ACCEPT 이슈 목록 등 **모든 동적 섹션은 `cat <source_file> >> "$PROMPT_FILE"` 패턴만 허용**. `echo "$VAR" >>` 같은 unquoted 변수 expansion 금지 (VAR에 backtick/`$(...)` 있으면 shell 해석됨). 이전 Codex 응답을 다음 라운드에 참조할 때 특히 주의 - Codex가 자기 reason 필드에 backtick 넣어올 수 있음.
-- **FORCED_ACCEPT 이슈 목록 identifier 형식**: `R{n}.{axis}#{id}` (cross-round unique). 예: `R1.correctness#2`. round 내 id는 unique지만 round 간 재사용될 수 있으므로 prefix 필수.
-
-**설치 확인**:
-```bash
-command -v codex || echo "codex missing; install: npm install -g @openai/codex"
-```
-
-**인증**: Codex CLI가 처리 (`codex login` 또는 `OPENAI_API_KEY`). mangchi는 건드리지 않음.
 
 ## 안티패턴
 
@@ -632,52 +357,22 @@ triad (설계 결정) → pumasi (초기 구현) → mangchi (품질 망치질) 
 - **권장 파일 크기**: ≤ 2000 LoC, ≤ 200KB. 초과 시 `--force` 필요.
 - **CASE-STUDIES.md 주의**: 해당 사례들은 **legacy schema (verdict BLOCK 포함, verify loop 없음)** 기준. 현 schema_version 1과 동작 다름 - 새 디자인의 empirical evidence는 재축적 필요.
 
-## Known Limits (새로 명시)
+## Known Limits (요약)
 
-### 설계 가정이 맞지 않는 경우
-- **Token 경제**: "Claude 토큰 풍부, Codex 토큰 희소" 가정 - ChatGPT Plus 위주 사용자(Codex 싸고 Claude 비쌈)에겐 역방향. 그땐 pumasi가 더 적합.
-- **Python 3.8+** 가정 - YAML 파싱에 프로젝트 Python 재사용. Python 없는 환경에선 별도 yaml parser (yq 등) 필요.
+전체 목록은 `references/known-limits.md`. 핵심 3가지:
 
-### 자동 탐지 한계
-- **No-op ACCEPT (locus ±5)**: 리팩터링으로 locus가 함수 전체 이동한 경우 false-negative 가능. CONVERGED.md §6 수동 확인 권장.
-- **Citation 진위**: Claude의 REJECT citation이 `file:LINE`은 체크하지만, 그 line의 코드가 실제로 Codex 지적을 "처리한 코드"인지는 검증 불가. 유일한 하드 카운터는 `--gate "<test>"`.
-- **Fabricated test name**: `tests/test_x.py::test_y`가 실존하는 테스트인지는 체크 안 함 (`--gate`로 통해야 drop되지만 gate 없으면 통과).
-
-### Resume 제한
-- **mv destroys continue**: CONVERGED 후 `mv updated.<ext> target_file` 실행 시 `--continue` 불가능. `--apply=original` 쓰거나 `mv` 전에 세션 종결 확인.
-- **Abort 후 continue 가능**: FORCED_ACCEPT ≥ threshold abort는 state 보존 - 수동 arbitration 후 `/mangchi --continue <slug>` 가능.
-
-### Self-review 모드 (Codex 부재)
-- Phase 6 verify loop 비활성 → Claude가 자기 판정을 자기 검증 = adversarial 무효.
-- FORCED_ACCEPT 메커니즘 비활성.
-- `state.json.self_review_mode: true` 기록됨.
-- 실질적으로 mangchi가 linter 수준으로 degrade. 중요 작업엔 비권장.
-
-### --no-verify 모드
-- Phase 6 전체 스킵 → REJECT 재검증 없음.
-- FORCED_ACCEPT 메커니즘 비활성.
-- Claude의 REJECT를 신뢰한다는 결정 = adversarial 보증 포기.
-- 보안/복잡 로직엔 비권장.
+- **Token 경제 가정** (Claude 풍부 / Codex 희소)이 반대인 사용자는 pumasi가 적합. Python 3.8+ 필요.
+- **자동 탐지 한계**: no-op ACCEPT는 locus ±5줄 휴리스틱(리팩터링 시 false-negative), REJECT citation·test name의 **진위**는 미검증 - 유일한 하드 카운터는 `--gate`.
+- **Degrade 모드**: self-review(Codex 부재)와 `--no-verify`는 verify loop + FORCED_ACCEPT를 끄므로 adversarial 보증이 사라진다 (linter 수준). `mv updated.*`로 원본 교체 시 `--continue` 불가.
 
 ## 참조
 
 - Axes prompts & YAML schema SSOT: `axes.md`
-- Templates: `templates/round.md`, `templates/converged.md`
+- Preflight script (Phase 0): `scripts/preflight.sh`
+- state.json schema SSOT: `references/state-schema.md`
+- Known limits (full): `references/known-limits.md`
+- Templates: `templates/round.md`, `templates/converged.md`, `templates/index.md`
 - Usage examples: `references/usage.md`
-- Case studies (legacy schema): `CASE-STUDIES.md`
+- Case studies (legacy schema): `CASE-STUDIES.md`, `CASE-STUDIES-v2.md`
 - Research notes: `RESEARCH.md`
-
-## Changelog (이 SKILL 자체)
-
-- **v2 (schema_version 1)** - 2026-04-16:
-  - verification loop 도입 (Codex 재검증)
-  - `necessity` → opt-in
-  - ratio-based 수렴 제거, 2-verified-rounds 도입
-  - 2 PASS 종결에 correctness+security 최소 커버리지 요구
-  - Shell injection 차단 (tempfile + stdin)
-  - Schema 통일 (verdict PASS|REVISE, severity HIGH|MEDIUM|LOW, locus)
-  - `docs/refinement/mangchi/<slug>/` 네임스페이스 분리
-  - 새 플래그: `--only-axes`, `--include-axes`, `--start-axis`, `--gate`, `--gate-every-round`, `--no-verify`, `--allow-self-review`, `--force`, `--force-round`, `--dry-run`
-  - Token 예산 (80K per-round, 180K per-call, 500K cumulative)
-  - FORCED_ACCEPT 메커니즘 (2연속 DISAGREE → 강제 ACCEPT, threshold 도달 시 abort)
-- **v1 (legacy)** - 원본: diff ≤ 30% 수렴, verdict BLOCK, 단일 Codex 호출/라운드.
+- Version history: `CHANGELOG.md` (repo root)

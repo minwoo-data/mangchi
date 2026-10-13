@@ -1,0 +1,66 @@
+# state.json schema (schema_version: 1)
+
+> SSOT for the per-session state file written to `docs/refinement/mangchi/<slug>/state.json`.
+> Initialised by `scripts/preflight.sh`; every round appends to `rounds[]` and `issues[].history[]`.
+
+```json
+{
+  "schema_version": 1,
+  "slug": "src-routes-auth-py",
+  "started_at": "2026-04-16T10:00:00Z",
+  "self_review_mode": false,
+  "no_verify_mode": false,
+  "axes_opt_in": [],
+  "start_axis": "correctness",
+  "gate_cmd": null,
+  "gate_every_round": false,
+  "force_round_rounds": [],
+  "rounds": [
+    {
+      "n": 1,
+      "axis": "correctness",
+      "verdict": "REVISE",
+      "no_changes_suggested": false,
+      "diff_loc": 18,
+      "codex_tokens": {"review": 15234, "verify": 4821, "estimate_only": false},
+      "ended_at": "..."
+    }
+  ],
+  "issues": [
+    {
+      "id": 1,
+      "first_seen_round": 1,
+      "axis": "correctness",
+      "title": "null check missing",
+      "locus": "auth.py:42-45",
+      "severity": "HIGH",
+      "confidence": "HIGH",
+      "history": [
+        {
+          "round": 1,
+          "action": "ACCEPT | REJECT | FORCED_ACCEPT",
+          "reason": "... (REJECT는 file:line citation 포함)",
+          "diff_verified": true,
+          "verification": {"verdict": "AGREE | DISAGREE", "reason": "..."}
+        }
+      ],
+      "status": "RESOLVED | PENDING | FORCED_ACCEPT"
+    }
+  ],
+  "codex_tokens_total": 20055,
+  "forced_accept_count": 0,
+  "force_accept_threshold": 2,
+  "last_invalid_codex_output": null,
+  "status": "active | converged | aborted",
+  "termination_reason": null
+}
+```
+
+## Field notes
+
+- `axes_opt_in`: values of `--include-axes` (`necessity`, `robustness`).
+- `rounds[].codex_tokens.estimate_only`: true when Codex CLI returned no usage info and the `char/4*1.3` heuristic was used.
+- `issues[].status`: `RESOLVED` (closed) / `PENDING` (carried over, incl. no-op ACCEPT) / `FORCED_ACCEPT` (2 consecutive DISAGREE).
+- `issues[].history[].diff_verified`: result of the Phase 5 `git diff -w --numstat` ±5-line locus check.
+- `termination_reason`: one of `verified_rounds` / `two_pass` / `r5_cap` / `gate_pass` / `user_stop` / `aborted_token_budget` / `aborted_forced_accept` / `aborted_codex_schema` / `aborted_context_window` / `aborted_gate_failed` / `aborted_no_termination_path`.
+- Legacy (pre-0.2.0) sessions have no `schema_version`; `--continue` prints a warning and maps `verdict: BLOCK` → `REVISE + severity: HIGH`.
