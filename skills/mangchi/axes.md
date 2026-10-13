@@ -14,10 +14,11 @@
 - **버그**: null/undefined/0/빈 배열/음수/초과값 처리 누락.
 - **엣지 케이스**: 경계값, 시간대 경계, 유니코드, 긴 입력.
 - **계약 위반**: 함수 시그니처 vs 실제 동작 불일치, 타입 선언 vs 리턴 불일치.
-- **레이스 조건**: 공유 상태 수정 시 동기화 누락.
 - **에러 전파 누락**: try/except로 먹어버리거나 잘못된 타입으로 던지기.
 
-지적하면 안 되는 것: 성능, 스타일, 설계 (다른 축 소관).
+지적하면 안 되는 것:
+- 성능, 스타일, 설계 (다른 축 소관).
+- **동시성/레이스 조건** - 공유 상태 동기화, lost update, 동시 호출 시나리오는 전부 `robustness` 축 소관. correctness는 single-threaded 계약만 본다. (레이스를 발견했으면 `this belongs to robustness, not mine` 주석만 남기고 issue에서 제외.)
 
 ---
 
@@ -32,10 +33,12 @@
 - **인증/인가 우회**: 권한 체크 누락, 세션 고정, 토큰 재사용, timing attack.
 - **비밀 누출**: 로그/에러 메시지/응답에 토큰/비밀번호/PII 노출.
 - **CSRF/XSS/SSRF**: 웹 경로에서 출처 검증 누락.
-- **TOCTOU 레이스**: 검사와 사용 사이 시점 차 공격.
+- **TOCTOU 공격**: 검사와 사용 사이 시점 차를 **공격자가 의도적으로** 벌려 권한/검증을 우회하는 경우만. (공격자 없는 일반 동시성 레이스는 `robustness` 소관 - 여기선 attacker-controlled timing 시나리오를 명시해야 한다.)
 - **암호학 오용**: 하드코딩 시크릿, 약한 알고리즘, IV/nonce 재사용.
 
-지적하면 안 되는 것: 성능, 스타일, 일반 설계 (보안 외).
+지적하면 안 되는 것:
+- 성능, 스타일, 일반 설계 (보안 외).
+- 공격자가 개입하지 않는 동시성 버그 (double-submit, lost update 등) → `robustness`.
 
 ---
 
@@ -48,7 +51,7 @@
 지적해야 할 것:
 - **명명**: 변수/함수/클래스가 역할을 드러내지 못함. 축약/단일 문자/오용.
 - **의도 불명 주석**: "hack here" 같은 경고성 주석 있으나 이유 없음.
-- **긴 함수**: 50줄+ 모놀리식 함수, 인자 5개+ 함수.
+- **긴 함수**: 50줄+ 모놀리식 함수, 인자 5개+ 함수. (길이/형태 자체는 이 축 소관. 한 함수가 **서로 다른 책임**을 섞고 있다는 지적은 `design`의 SRP 항목.)
 - **중첩**: 4단계+ if/for 중첩.
 - **마법 숫자/문자열**: 근거 없는 리터럴.
 - **데드 코드 / 미사용 import**: 가독 소음.
@@ -85,7 +88,7 @@
 > "이 코드가 1년 뒤 변경될 때 비용이 합리적인가?"
 
 지적해야 할 것:
-- **SRP 위반**: 한 함수/클래스가 너무 많은 일 수행.
+- **SRP 위반**: 한 함수/클래스가 **서로 다른 책임**을 섞어 수행. (길이 자체는 `readability` 소관 - 여기선 책임 혼합만. 50줄이어도 책임이 하나면 SRP 이슈 아님.)
 - **의존 방향 역전**: 하위 레이어가 상위 구체 타입을 직접 참조.
 - **숨은 결합**: 전역 상태, 싱글톤 오남용, 모듈 간 암묵 계약.
 - **테스트 불가능성**: 외부 의존성을 mock할 seam이 없음.
@@ -148,14 +151,14 @@ YAGNI(You Aren't Gonna Need It)·Occam 원칙의 운영화. 코드가 커지는 
 
 지적해야 할 것 - 반드시 4 sub-axis 전부 순회, 각각 1문장 이상 언급. 해당 없으면 `N/A - <이유>` 명시 (예: "N/A - 순수 함수, 공유 상태 없음"):
 
-- **Concurrency**: 두 user/request/worker가 동시에 들어오면? race, double-submit, lost update, 중복 insert, lock 경합, TOCTOU. `correctness`의 "레이스 조건"과 구분: correctness는 single write path의 race, robustness는 adversarial한 동시성 시나리오 전체.
+- **Concurrency**: 두 user/request/worker가 동시에 들어오면? race, double-submit, lost update, 중복 insert, lock 경합, 공유 상태 동기화 누락, TOCTOU. **이 축이 동시성 전체의 단일 소유자**다 - `correctness`는 single-threaded 계약만, `security`는 공격자가 타이밍을 조작하는 TOCTOU만 본다.
 - **Failure & Recovery**: 중간에 끊기면 (crash / 네트워크 drop / 타임아웃 / 부분 쓰기)? idempotency, retry 안전성, rollback, orphan state, 보상 트랜잭션. 실패 복구 후 state가 consistent한가.
 - **Data Integrity**: FK cascade 방향 (CASCADE / RESTRICT / SET NULL), unique / CHECK 제약, 테이블 간 referential 일관성, 덮어쓰기 의미 (upsert vs replace vs merge), 스키마 버전 mismatch, audit trail 일관성.
 - **State Transitions**: 도달 가능한 상태/전이 전부. forward (A→B), reversal (B→A), 금지 전이, terminal, stuck, 실패 후 재진입. 전이 그래프를 머릿속으로 그려볼 때 빈 노드/화살표가 있는가.
 
 지적하면 안 되는 것:
 - 순수 가독성 / 스타일 / 성능 (다른 축 소관).
-- 일반적 인젝션 공격 (security 축 소관 - 단 TOCTOU는 양쪽 다 해당이므로 robustness에서도 가능).
+- 일반적 인젝션 공격 (security 축 소관). TOCTOU는 공격자가 타이밍을 조작하는 경우만 security, 그 외 동시성 레이스는 전부 여기.
 - **시나리오 없이 "race condition 있을 수 있음"** 같은 모호한 지적 - 반드시 **구체적 시나리오** (예: "두 탭이 300ms 내 동시에 submit 눌렀을 때") 명시. 시나리오 없으면 `severity: LOW`로 강등.
 - `correctness`의 happy-path 버그 - 이건 correctness에서 잡을 것.
 
