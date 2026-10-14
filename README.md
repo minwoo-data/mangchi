@@ -189,19 +189,27 @@ Aborts (session can be resumed with `--continue` after manual arbitration):
 - **ACCEPT diff verification (Phase 5)** - each ACCEPTed issue's `locus`
   must actually be touched in `git diff -w --numstat` (±5 line fuzz). No-op
   ACCEPTs are carried forward, not counted toward convergence.
-- **REJECT requires citation** - `file:LINE` or test name in the reason is
-  mandatory (hard validation error, never silently flipped to ACCEPT).
+- **REJECT requires citation** - `file.ext:LINE`, a test node id or a `test_*`
+  name in the reason is mandatory (hard validation error, never silently
+  flipped to ACCEPT). The rejects file names the issue (`id`, or
+  `carried: "R{n}.{axis}#{id}"` for a DISAGREE carried from the previous
+  round) and the reason; the issue text Codex is asked about always comes from
+  the review itself.
 - **Codex invocation contract as code (0.4.0)** - every Codex call goes
   through `skills/mangchi/scripts/codex-run.sh` (`review` / `verify`), so
   nothing can be skipped: the Sandbox Safety Preamble comes first; the prompt
   is assembled from files (axis rubric and output format cut out of
-  `axes.md`, the full `updated.*`, and from round 2 the required
-  `round-(N-1).carryover.md`) and sent via tempfile + stdin, never argv;
-  Codex runs in the **read-only sandbox** (no writes, no network;
-  `MANGCHI_CODEX_SANDBOX=bypass` only on request); everything Codex prints is
+  `axes.md`, the full `updated.*` line-numbered inside per-call random
+  markers, and from round 2 the required `round-(N-1).carryover.md`) and sent
+  via tempfile + stdin, never argv; Codex runs in the **read-only sandbox** (no
+  writes, no network; `MANGCHI_CODEX_SANDBOX=bypass` only on request) from an
+  empty working dir; everything Codex prints, and the YAML-decoded result, is
   secret-scrubbed before it reaches the session dir; only the final message
-  is kept; the YAML answer is validated by `scripts/mangchi_yaml.py`, with one
-  schema retry counted by the script. `bash scripts/codex-run.sh --selftest`
+  is kept; the YAML answer (the final ```yaml fence only) is validated by
+  `scripts/mangchi_yaml.py`, with one schema retry counted by the script.
+  Every call writes its attempt record first, so a crash never leaves an
+  answer that the next call silently overwrites; a security incident blocks
+  re-runs until `--after-incident`. `bash scripts/codex-run.sh --selftest`
   checks all of it against a fake Codex.
 - **Pre-flight guards** - a real script, `skills/mangchi/scripts/preflight.sh`
   (Phase 0): Bash 4+ / git / Python 3.8+ + PyYAML / Codex ≥ 0.125.0, file

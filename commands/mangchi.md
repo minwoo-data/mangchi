@@ -131,6 +131,8 @@ On success, the user should be able to:
   section - interactive confirmation to self-review, or auto-abort in
   non-interactive environments. Do NOT silently fall back.
   `secret-scrubbed(...)` is a security incident: never auto-retry, tell the user.
+  The script refuses a re-run of that call until the user has looked at it and
+  you pass `--after-incident`.
 - The script puts the whole `updated.<ext>` into the prompt (never elided -
   content shortening has previously been documented to degrade review
   fidelity, see `skills/mangchi/references/usage.md`) and builds every dynamic
@@ -142,3 +144,11 @@ On success, the user should be able to:
   round `id` is unique, but round numbers prefix for cross-round reference.
 - Legacy sessions (schema_version absent) encountered via `--continue`:
   warn the user before resuming; behavior may differ from current design.
+- Sessions created by mangchi 0.3.x (state.json has `schema_version` 1 but no
+  `mangchi_version`): `codex-run.sh` exits 2 with migration steps. Write
+  `round-(N-1).carryover.md` from state.json, move aside any
+  `round-N.codex.txt` without a `.json`, add `"mangchi_version": "0.4.0"`, then
+  continue.
+- To re-verify an issue Codex DISAGREEd on in the previous round, put it in the
+  rejects file as `carried: "R{n}.{axis}#{id}"` (with `post_edit_lines`); it
+  must be listed under `## carryover` in the previous round's carryover file.

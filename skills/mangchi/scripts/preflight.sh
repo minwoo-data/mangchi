@@ -14,8 +14,8 @@
 #   FORCE_ACCEPT_THRESHOLD  default 2
 #   GATE_CMD                value of --gate
 #   REFINEMENT_ROOT         default docs/refinement/mangchi
-#   SKIP_ENV_CHECK=1        skip the PyYAML probe (CI images that parse YAML elsewhere)
 #   MANGCHI_PYTHON          interpreter to use (default: first working python3 / python)
+#   MANGCHI_CODEX_BIN       Codex CLI to probe (default: codex; the same binary codex-run.sh runs)
 #
 # Exit codes: 0 ready, 1 hard failure (message on stderr).
 # On success prints KEY=VALUE lines (SLUG, DIR, EXT, LOC, BYTES, CODEX,
@@ -24,6 +24,8 @@
 # filenames) stays in SKILL.md §"Codex 부재 시 동작" - this script only reports.
 set -u
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANGCHI_VERSION=0.4.0
 FILE="${1:-}"
 [ -n "$FILE" ] || { echo "[ERROR] usage: preflight.sh <target-file>" >&2; exit 1; }
 
@@ -42,26 +44,33 @@ for c in ${MANGCHI_PYTHON:+"$MANGCHI_PYTHON"} python3 python; do
   PY="$c"; break
 done
 [ -n "$PY" ] || err "Python 3.8+ not found (YAML parsing). Set MANGCHI_PYTHON if it is not on PATH."
-if [ -n "$PY" ] && [ -z "${SKIP_ENV_CHECK:-}" ]; then
+# codex-run.sh validates every Codex answer with PyYAML, so the probe is not optional.
+[ -z "${SKIP_ENV_CHECK:-}" ] || warn "SKIP_ENV_CHECK is no longer supported and is ignored: scripts/codex-run.sh always validates Codex answers with PyYAML."
+if [ -n "$PY" ]; then
   "$PY" -c "import yaml" 2>/dev/null || err "PyYAML missing. Install: $PY -m pip install pyyaml"
 fi
 CODEX=0
-if command -v codex >/dev/null 2>&1; then
-  # scripts/codex-run.sh runs Codex with -s read-only, --output-last-message and -c model_reasoning_effort.
-  CODEX_VER="$(codex --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+CODEX_BIN="${MANGCHI_CODEX_BIN:-codex}"
+if command -v "$CODEX_BIN" >/dev/null 2>&1; then
+  # scripts/codex-run.sh runs this binary with -s read-only, -C, --output-last-message and -c model_reasoning_effort.
+  CODEX_VER="$("$CODEX_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   if [ -z "$CODEX_VER" ] || [ "$(printf '%s\n%s\n' 0.125.0 "$CODEX_VER" | sort -V | head -1)" != 0.125.0 ]; then
-    err "Codex CLI >= 0.125.0 required (read-only sandbox flags), found '${CODEX_VER:-unknown}'. Update: npm install -g @openai/codex@latest"
+    err "Codex CLI >= 0.125.0 required (read-only sandbox flags), found '${CODEX_VER:-unknown}' at $CODEX_BIN. Update: npm install -g @openai/codex@latest"
   else
     CODEX=1
   fi
 else
-  warn "Codex CLI missing. See SKILL.md §'Codex 부재 시 동작' for routing."
+  warn "Codex CLI missing ($CODEX_BIN). See SKILL.md §'Codex 부재 시 동작' for routing."
 fi
 [ "$fail" -eq 0 ] || exit 1
+json_str() { "$PY" -c 'import json, sys; sys.stdout.write(json.dumps(sys.argv[1], ensure_ascii=False))' "$1"; }
 
-# ── Step 2: input validity + path normalisation ──
+# ── Step 2: input validity + path normalisation + credential refusal ──
 FILE="${FILE//\\//}"   # Windows backslashes -> slashes (Git Bash)
 [ -f "$FILE" ] || { echo "[ERROR] File not found: $FILE" >&2; exit 1; }
+# The target is copied into the session dir and pasted into every Codex prompt: a credential file
+# (secrets.yaml, credentials.json, id_rsa, .npmrc, *.env, ...) is refused before anything is copied.
+bash "$HERE/codex-run.sh" check-target "$FILE" || { echo "[ERROR] mangchi does not refine credential files." >&2; exit 1; }
 
 # ── Step 3: size guard ──
 LOC=$(wc -l < "$FILE" | tr -d ' ')
@@ -110,30 +119,39 @@ compute_slug() {
 SLUG=$(compute_slug "$FILE")
 ROOT="${REFINEMENT_ROOT:-docs/refinement/mangchi}"
 DIR="$ROOT/$SLUG"
-mkdir -p "$DIR"
+mkdir -p "$DIR" || { echo "[ERROR] cannot create $DIR" >&2; exit 1; }
 OLD_DIR="docs/refinement/$SLUG"
 if [ -d "$OLD_DIR" ] && [ ! -L "$OLD_DIR" ]; then
   warn "Legacy path detected: $OLD_DIR. New runs use $DIR. Move manually if continuing an old session."
 fi
 
 # ── Step 8: working copy + snapshot + state.json ──
-EXT="${FILE##*.}"
-[ "$EXT" != "$FILE" ] || EXT="txt"
-cp "$FILE" "$DIR/updated.$EXT"
-cp "$FILE" "$DIR/source-snapshot.$EXT"
-if [ ! -f "$DIR/state.json" ]; then
+# The extension comes from the file name, not the path (./Makefile, src/v1.2/handler), and keeps to
+# the characters codex-run.sh accepts in updated.<ext>; anything else becomes txt.
+BASE="${FILE##*/}"
+EXT="${BASE##*.}"
+[ "$EXT" != "$BASE" ] || EXT="txt"
+case "$EXT" in ''|*[!A-Za-z0-9_-]*) EXT="txt" ;; esac
+if [ -f "$DIR/state.json" ]; then
+  # An existing session's working copy holds its edits: never overwrite it.
+  warn "state.json already exists in $DIR - working copy and state not overwritten (use --continue $SLUG)."
+else
+  cp "$FILE" "$DIR/updated.$EXT" || { echo "[ERROR] cannot copy $FILE to $DIR/updated.$EXT" >&2; exit 1; }
+  cp "$FILE" "$DIR/source-snapshot.$EXT" || { echo "[ERROR] cannot copy $FILE to $DIR/source-snapshot.$EXT" >&2; exit 1; }
   NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   INC_JSON=$(printf '%s' "${INCLUDE_AXES:-}" | awk -F, 'BEGIN{ORS=""} {for(i=1;i<=NF;i++) if($i!=""){printf "%s\"%s\"", (n++?",":""), $i}}')
-  cat > "$DIR/state.json" <<JSON
+  cat > "$DIR/state.json" <<JSON || { echo "[ERROR] cannot write $DIR/state.json" >&2; exit 1; }
 {
   "schema_version": 1,
+  "mangchi_version": "$MANGCHI_VERSION",
   "slug": "$SLUG",
+  "target_basename": $(json_str "$BASE"),
   "started_at": "$NOW",
   "self_review_mode": false,
   "no_verify_mode": $([ -n "${NO_VERIFY:-}" ] && echo true || echo false),
   "axes_opt_in": [$INC_JSON],
   "start_axis": "${START_AXIS:-correctness}",
-  "gate_cmd": $([ -n "${GATE_CMD:-}" ] && printf '"%s"' "$GATE_CMD" || echo null),
+  "gate_cmd": $([ -n "${GATE_CMD:-}" ] && json_str "$GATE_CMD" || echo null),
   "rounds": [],
   "issues": [],
   "codex_tokens_total": 0,
@@ -144,8 +162,6 @@ if [ ! -f "$DIR/state.json" ]; then
   "termination_reason": null
 }
 JSON
-else
-  warn "state.json already exists in $DIR - not overwritten (use --continue $SLUG)."
 fi
 
 echo "SLUG=$SLUG"

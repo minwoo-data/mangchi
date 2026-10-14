@@ -197,7 +197,7 @@ Codex가 Claude의 REJECT 근거를 재검증할 때 사용:
 ```yaml
 axis: <axis_name>                          # 원래 리뷰 축
 verifications:
-  - issue_id: 1                            # 원 issues[].id 와 매칭
+  - issue_id: 1                            # 원 issues[].id 와 매칭. 이월(carried) 이슈는 헤더의 문자열 그대로 (예: "R1.correctness#2")
     verdict: AGREE | DISAGREE
     reason: "<DISAGREE 시 post-edit 코드의 파일:줄 인용 필수, AGREE 시 선택>"
 ```

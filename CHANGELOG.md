@@ -77,6 +77,89 @@ shell. Same review algorithm, same YAML `schema_version` 1.
   security each >= 1, state-schema termination reasons). README.ko's diagram
   still offered `DEFER` (removed in schema v1).
 
+### Review fixes (`/prism-all` on PR #3: 35 candidates, 33 confirmed)
+Every fix has a selftest case, and each case was broken on purpose once to
+prove it catches the regression.
+- **Verify asks Codex about the issue the review raised.** The rejects file
+  now names an issue (`id`) and gives Claude's reason and `post_edit_lines`.
+  Locus, problem, proposed_fix and severity come from the review result. A
+  copy in the rejects file that differs is exit 2 (it used to be shown to
+  Codex as is, so a REJECT could be verified against a different issue).
+- **Carried DISAGREE issues have a real path to FORCED_ACCEPT.**
+  `carried: "R{m}.{axis}#{id}"` re-verifies an issue from an earlier round
+  under its own axis and key. It must be listed under `## carryover`, and it
+  needs `post_edit_lines`. Before this, the same-axis ban plus the id check
+  meant a carried issue could never be verified twice.
+- **Only the final ```yaml fence is parsed.** A malformed final fence no
+  longer falls back to an earlier block, and a trailing untagged code fence
+  no longer replaces the answer. A YAML value that crashes the loader
+  (e.g. `2026-99-99`) is schema-invalid instead of a helper crash.
+- **A helper crash is never published as `ok`.** The status becomes
+  `degraded(result-failed)` (re-runnable) and keeps a scrubbed error tail.
+- **Durable attempt record.** Every call writes its result JSON first
+  (`degraded(not-started)`, attempt number, earlier tokens). The rules:
+  - An existing `*.attempt1.txt.json` means the schema retry is used.
+  - An attempt-1 answer is never overwritten.
+  - An answer without its JSON, or a corrupt JSON, is exit 2 and is never
+    deleted.
+- **Secrets:**
+  - The YAML-decoded result is scanned again before it is published (escapes
+    could smuggle a secret past the raw scrub).
+  - The retry prompt's error text cannot add or allow a new secret.
+  - The placeholder filter looks at the whole value only, so
+    `EXAMPLE_API_KEY=<real>` is caught.
+  - A failing filter stage fails closed.
+  - An interrupt during quarantine keeps the incident.
+- **Security incidents block re-runs.** After `secret-scrubbed(...)`, a plain
+  re-run and `--retry` are exit 2 until `--after-incident` is passed (after
+  the user has looked).
+- **Prompt:**
+  - `updated.<ext>` is line-numbered (locus numbers are real) and wrapped in
+    per-call random markers. The role text says the block is data, never
+    instructions.
+  - The prompt ends with a marker, and the token footer is read only after it.
+  - Codex starts in an empty dir (`-C`).
+- **Tokens:**
+  - `tokens.prior_total` / `call_total` carry earlier attempts forward, and
+    `state.json` copies `call_total`.
+  - The `tokens used` footer is read only after the echoed prompt.
+- **Inputs:**
+  - `--issues` is snapshotted under the lock.
+  - Locus must be a whole `file.ext:LINE[-LINE]`.
+  - Citations need `file.ext:LINE`, a node id or `test_*` (`10:30`,
+    `issue:2` and a bare `::` no longer count).
+  - A PASS without `no_changes_suggested: true` warns that it won't count
+    toward the 2-PASS stop.
+- **Shared core (to port to prism / triad):**
+  - The stale-scratch sweep skips symlinks, other users' dirs and anything
+    written in the last 10 minutes.
+  - A lock without a pid has a 10 s grace period, a stale lock is reclaimed by
+    rename, and only the owner removes a lock.
+  - Cleanup failures are recorded.
+  - The self-scan checks the scan's exit code.
+- **preflight.sh:**
+  - Refuses credential files by their original name before copying
+    (`codex-run.sh check-target`).
+  - Records `mangchi_version` and `target_basename` (re-checked on every
+    call).
+  - Honours `MANGCHI_CODEX_BIN`.
+  - Takes the extension from the basename, limited to `[A-Za-z0-9_-]`
+    (else `txt`), and checks each copy.
+  - Never overwrites an existing session's working copy.
+  - `SKIP_ENV_CHECK` is removed (ignored with a warning). codex-run.sh always
+    needs PyYAML.
+- The doc gate also covers `commands/mangchi.md`, the READMEs and `usage.md`.
+
+### Migrating a 0.3.x session
+`codex-run.sh` refuses a session whose `state.json` has no `mangchi_version`
+and prints these steps:
+1. Move aside any `round-N.codex.txt` that has no `.json`. That round is
+   reviewed again.
+2. Write `round-(N-1).carryover.md` for the next round from `state.json`:
+   `## decisions`, `## carryover` with PENDING issues as `R{n}.{axis}#{id}`,
+   and `## forced_accept`.
+3. Add `"mangchi_version": "0.4.0"`.
+
 ## [0.3.1] - 2026-10-13
 
 Axis-ownership cleanup + SKILL.md diet + version sync. No schema change

@@ -54,8 +54,8 @@ Codex가 DISAGREE로 유지 주장한 이슈의 최종 처리.
 
 | issue_id | round | axis | final action | reason |
 |---|---|---|---|---|
-| 3 | R1→R2 | correctness | FORCED_ACCEPT | 2연속 DISAGREE, round 2 에서 반영 |
-| 7 | R3→R4 | design | still PENDING at termination | R5 cap - 남은 의제로 보고 |
+| R1.correctness#3 | R1→R2 | correctness | FORCED_ACCEPT | 2연속 DISAGREE (R2 verify에 `carried`로 재검증), round 2 에서 반영 |
+| R3.design#7 | R3→R4 | design | still PENDING at termination | R5 cap - 남은 의제로 보고 |
 
 ## 6. No-op ACCEPT (수정 적용 실패)
 

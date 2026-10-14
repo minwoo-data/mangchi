@@ -27,7 +27,7 @@ bash "<skill dir>/scripts/codex-run.sh" review docs/refinement/mangchi/{slug} {N
 
 **Summary line**: `{codex_run_summary_line}` (`status=… verdict=… issues=… tokens=… sandbox=read-only`)
 
-**Prompt**: `round-{N}.prompt.txt` = preamble → 역할 + `{axis}` rubric + 출력 포맷 (axes.md) → `updated.{ext}` 전문 → `round-{N-1}.carryover.md` (R≥2). 스크립트가 조립 - argv 전달 없음 (shell injection 차단).
+**Prompt**: `round-{N}.prompt.txt` = preamble → 역할 + `{axis}` rubric + 출력 포맷 (axes.md) → `updated.{ext}` 전문 (줄번호, 호출마다 바뀌는 무작위 표식으로 감쌈) → `round-{N-1}.carryover.md` (R≥2) → 끝 표식. 스크립트가 조립 - argv 전달 없음 (shell injection 차단).
 
 **Token pre-estimate** (per-call guard, 스크립트가 계산):
 - `char_count(prompt) / 4 * 1.3` ≥ 180K → Codex 호출 없이 `degraded(prompt-too-large)` → abort `aborted_context_window`.
@@ -41,6 +41,7 @@ bash "<skill dir>/scripts/codex-run.sh" review docs/refinement/mangchi/{slug} {N
 **Schema validation** (Phase 3, `round-{N}.codex.txt.json`):
 - `status`: `{ok | schema-invalid(<field>) | degraded(<reason>) | secret-scrubbed(<reason>)}`
 - schema-invalid → 같은 명령에 `--retry` 1회 (첫 답은 `round-{N}.codex.attempt1.txt`).
+- secret-scrubbed → 재실행은 스크립트가 막는다. 사용자에게 알리고, 확인을 받은 뒤에만 `--after-incident`.
 - 재시도 실패 → abort `aborted_codex_schema`, `state.json.last_invalid_codex_output: "..."` 기록.
 
 **Fallback check**: `{no_fallback | [fallback: main-self-review] - reason}`
@@ -107,12 +108,13 @@ Original (`{target_file}`): `{unchanged | modified}` (apply_mode={apply_mode}).
 
 ### Verify invocation
 ```bash
-# round-{N}.rejects.yaml: REJECT된 이슈 (id, locus, problem, reason(인용 필수), post_edit_lines)
+# round-{N}.rejects.yaml: REJECT된 이슈 - id(이번 리뷰) 또는 carried("R{m}.{axis}#{id}", 이월된 DISAGREE),
+# reason(file.ext:LINE / 노드 id / test_* 인용 필수), post_edit_lines(carried는 필수). locus·problem은 스크립트가 리뷰에서 가져온다.
 bash "<skill dir>/scripts/codex-run.sh" verify docs/refinement/mangchi/{slug} {N} \
   --issues docs/refinement/mangchi/{slug}/round-{N}.rejects.yaml
 ```
 
-스크립트가 각 locus의 post-edit `updated.{ext}` ±10줄 context를 붙인다. 결과: `round-{N}.verify.txt` + `.json` (`status`, `verify.verifications[]`).
+스크립트가 리뷰 원문과 각 이슈의 post-edit `updated.{ext}` ±10줄 context를 붙인다. 결과: `round-{N}.verify.txt` + `.json` (`status`, `verify.verifications[]`).
 
 ### Verify results
 
@@ -121,7 +123,7 @@ bash "<skill dir>/scripts/codex-run.sh" verify docs/refinement/mangchi/{slug} {N
 | 2 | REJECT | AGREE | 종결 |
 | 3 | REJECT | DISAGREE | carry over to R{N+1}, status: PENDING |
 
-**FORCED_ACCEPT 룰**: 같은 `issue_id`가 2라운드 연속 DISAGREE → 강제 ACCEPT + `forced_accept_count += 1`. `forced_accept_count ≥ force_accept_threshold` (default **2**) → abort.
+**FORCED_ACCEPT 룰**: 같은 이슈가 2라운드 연속 DISAGREE (라운드 N의 DISAGREE를 라운드 N+1 rejects 파일에 `carried: "R{N}.{axis}#{id}"`로 다시 보냈는데 또 DISAGREE) → 강제 ACCEPT + `forced_accept_count += 1`. `forced_accept_count ≥ force_accept_threshold` (default **2**) → abort.
 
 ---
 
