@@ -6,7 +6,7 @@
 **Started**: {start_timestamp}
 **Closed**: {end_timestamp}
 **Rounds consumed**: {N} / 5
-**Termination reason**: `{two_verified_rounds | two_consecutive_pass | max_rounds_cap | gate_passed | user_stop | aborted_token_budget | aborted_forced_accept_threshold | aborted_codex_schema_retry}`
+**Termination reason**: `{verified_rounds | two_pass | r5_cap | gate_pass | user_stop | aborted_token_budget | aborted_forced_accept | aborted_codex_schema | aborted_context_window | aborted_gate_failed | aborted_no_termination_path}`
 **Schema version**: 1
 
 > **Pass-based 종결의 최소 커버리지 룰**:
@@ -70,7 +70,7 @@ ACCEPT 판정했으나 실제 `updated.<ext>` 변경에 locus 영역이 반영�
 | Reviews (Phase 2 × N rounds) | {sum} |
 | Verifies (Phase 6 × K rounds) | {sum} |
 | **Total cumulative** | {total} (budget: 500K) |
-| Per-round peak | {max} (cap: 80K) |
+| Per-call peak | {max} (cap: 180K, `char/4*1.3`) |
 
 ## 8. Known Limits
 

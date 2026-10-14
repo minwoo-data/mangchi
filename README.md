@@ -86,9 +86,12 @@ targets the "code exists, needs to be better" gap.
 ### Prerequisites
 
 ```bash
-# Codex CLI (the reviewer)
+# Codex CLI >= 0.125.0 (the reviewer; needs the read-only sandbox flags)
 npm install -g @openai/codex
 codex login    # or set OPENAI_API_KEY
+
+# Python 3.8+ with PyYAML (answer validation)
+python -m pip install pyyaml
 
 # Claude Code (the orchestrator)
 # See https://docs.claude.com/en/docs/claude-code
@@ -165,12 +168,12 @@ Any of:
    "easy axes only" PASS streaks don't count).
 3. **R5 hard cap** (prevents oscillation + token drain).
 4. **`--gate "<cmd>"` exit 0** - external command passes (runs once before
-   termination, or every round with `--gate-every-round`).
+   termination).
 5. **User `--stop`**.
 
 Aborts (session can be resumed with `--continue` after manual arbitration):
 - Cumulative Codex tokens ≥ 500K
-- `forced_accept_count ≥ --force-accept-threshold` (default **1** = strict)
+- `forced_accept_count ≥ --force-accept-threshold` (default **2**; `=1` strict for security/crypto)
 - Codex YAML schema retry exhausted
 - Per-call context window exceeded (≥ 180K tokens)
 
@@ -188,11 +191,20 @@ Aborts (session can be resumed with `--continue` after manual arbitration):
   ACCEPTs are carried forward, not counted toward convergence.
 - **REJECT requires citation** - `file:LINE` or test name in the reason is
   mandatory (hard validation error, never silently flipped to ACCEPT).
-- **Shell-injection-safe Codex calls** - strict tempfile + stdin pattern; no
-  argv interpolation. All dynamic prompt content appended via
-  `cat <file> >>` (never via unquoted variable expansion).
+- **Codex invocation contract as code (0.4.0)** - every Codex call goes
+  through `skills/mangchi/scripts/codex-run.sh` (`review` / `verify`), so
+  nothing can be skipped: the Sandbox Safety Preamble comes first; the prompt
+  is assembled from files (axis rubric and output format cut out of
+  `axes.md`, the full `updated.*`, and from round 2 the required
+  `round-(N-1).carryover.md`) and sent via tempfile + stdin, never argv;
+  Codex runs in the **read-only sandbox** (no writes, no network;
+  `MANGCHI_CODEX_SANDBOX=bypass` only on request); everything Codex prints is
+  secret-scrubbed before it reaches the session dir; only the final message
+  is kept; the YAML answer is validated by `scripts/mangchi_yaml.py`, with one
+  schema retry counted by the script. `bash scripts/codex-run.sh --selftest`
+  checks all of it against a fake Codex.
 - **Pre-flight guards** - a real script, `skills/mangchi/scripts/preflight.sh`
-  (Phase 0): Bash 4+ / git / Python 3.8+ + PyYAML / Codex presence, file
+  (Phase 0): Bash 4+ / git / Python 3.8+ + PyYAML / Codex ≥ 0.125.0, file
   size (≤ 2000 LoC / ≤ 200KB unless `--force`), 2-PASS coverage warning if
   `--only-axes` excludes correctness or security, hard refusal of self-review
   on security-sensitive filenames, the `robustness` hint, then slug + working
@@ -204,15 +216,18 @@ Aborts (session can be resumed with `--continue` after manual arbitration):
   auto-abort unless `--allow-self-review` passed.
 - Each round's Codex prompt, review response, and verify response are
   preserved as audit trail (`round-N.prompt.txt`, `.codex.txt`,
-  `.verify.txt`). `INDEX.md` summarizes all rounds.
+  `.verify.txt`, each answer with its validated `.json`). `INDEX.md`
+  summarizes all rounds.
 
-### Skill layout (0.3.1)
+### Skill layout (0.4.0)
 
 ```
 skills/mangchi/
-├── SKILL.md                     # the workflow contract (~380 lines; loaded on every call)
+├── SKILL.md                     # the workflow contract (~425 lines; loaded on every call)
 ├── axes.md                      # axis rubrics + YAML output schema (SSOT)
 ├── scripts/preflight.sh         # Phase 0: guards, robustness hint, slug, state.json init
+├── scripts/codex-run.sh         # Phase 2/3/6: the Codex call (preamble, sandbox, scrub, schema check)
+├── scripts/mangchi_yaml.py      # axes.md section cutter, verify context, YAML validator
 ├── references/
 │   ├── state-schema.md          # state.json schema (schema_version 1)
 │   ├── known-limits.md          # full list of design assumptions and detection limits
@@ -222,7 +237,7 @@ skills/mangchi/
 ```
 
 SKILL.md deliberately carries only the rules; schemas, limits and the
-preflight code live in the files above so each invocation pays for ~380
+preflight code live in the files above so each invocation pays for ~425
 lines of contract instead of ~680.
 
 ## Research backing

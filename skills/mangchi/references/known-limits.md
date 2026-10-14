@@ -5,6 +5,8 @@
 ### 설계 가정이 맞지 않는 경우
 - **Token 경제**: "Claude 토큰 풍부, Codex 토큰 희소" 가정 - ChatGPT Plus 위주 사용자(Codex 싸고 Claude 비쌈)에겐 역방향. 그땐 pumasi가 더 적합.
 - **Python 3.8+** 가정 - YAML 파싱에 프로젝트 Python 재사용. Python 없는 환경에선 별도 yaml parser (yq 등) 필요.
+- **read-only 샌드박스** (0.4.0) - Codex는 `-s read-only`로 돈다: 읽기만 되고 쓰기·네트워크는 막힌다. 대상 파일 전문은 프롬프트에 들어가므로 리뷰 자체는 영향이 없지만, Codex가 주변 파일을 직접 열어 보는 탐색은 샌드박스가 읽게 해 주는 경로로 한정된다 (예: Windows에서 Google Drive `H:`는 access denied로 실측). 샌드박스를 못 쓰는 환경이면 사용자가 요청할 때만 `MANGCHI_CODEX_SANDBOX=bypass`.
+- **Secret scrub은 패턴 기반** - `codex-run.sh`는 알려진 키 형식·`*_SECRET/PASSWORD/TOKEN=값`·DSN·JWT·PEM을 잡는다. 형식 없는 비밀(임의 문자열 비밀번호)은 못 잡으므로 `.env`·자격 증명 파일이 있는 디렉토리에서 돌리지 않는 것이 1차 방어다 (스크립트가 cwd에 있으면 경고).
 
 ### 자동 탐지 한계
 - **No-op ACCEPT (locus ±5)**: 리팩터링으로 locus가 함수 전체 이동한 경우 false-negative 가능. CONVERGED.md §6 수동 확인 권장.

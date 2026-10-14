@@ -13,8 +13,6 @@
   "axes_opt_in": [],
   "start_axis": "correctness",
   "gate_cmd": null,
-  "gate_every_round": false,
-  "force_round_rounds": [],
   "rounds": [
     {
       "n": 1,
@@ -59,7 +57,7 @@
 ## Field notes
 
 - `axes_opt_in`: values of `--include-axes` (`necessity`, `robustness`).
-- `rounds[].codex_tokens.estimate_only`: true when Codex CLI returned no usage info and the `char/4*1.3` heuristic was used.
+- `rounds[].codex_tokens`: copied from the result JSON `scripts/codex-run.sh` writes next to each answer (`round-N.codex.txt.json` / `round-N.verify.txt.json`, field `tokens`). `estimate_only` is true when Codex CLI reported no usage (`tokens used`) and the `char/4*1.3` estimate of the assembled prompt was used.
 - `issues[].status`: `RESOLVED` (closed) / `PENDING` (carried over, incl. no-op ACCEPT) / `FORCED_ACCEPT` (2 consecutive DISAGREE).
 - `issues[].history[].diff_verified`: result of the Phase 5 `git diff -w --numstat` ±5-line locus check.
 - `termination_reason`: one of `verified_rounds` / `two_pass` / `r5_cap` / `gate_pass` / `user_stop` / `aborted_token_budget` / `aborted_forced_accept` / `aborted_codex_schema` / `aborted_context_window` / `aborted_gate_failed` / `aborted_no_termination_path`.

@@ -57,7 +57,7 @@ Claude에게 `auth.py`를 하드닝해달라고 함. Claude가 자기 코드를 
 ```
 ┌─ Claude ──────────────────────────┐
 │  ✅ 코드 수정 (Edit tool)          │
-│  ✅ 판단 (ACCEPT / REJECT / DEFER) │
+│  ✅ 판단 (ACCEPT / REJECT)         │
 │  ✅ 전체 오케스트레이션            │
 │  ❌ 리뷰는 안 함 (Codex에게 위임)  │
 └───────────────────────────────────┘
@@ -67,6 +67,7 @@ Claude에게 `auth.py`를 하드닝해달라고 함. Claude가 자기 코드를 
 │  ✅ YAML 포맷으로 지적만 출력      │
 │  ❌ 코드 수정 절대 안 함           │
 │  ❌ 새 파일 만들지 않음            │
+│  ❌ 쓰기·네트워크 없음 (샌드박스)  │
 └───────────────────────────────────┘
 ```
 
@@ -122,12 +123,12 @@ Mangchi가 타깃하는 지점은 **"코드는 있는데 더 견고해져야 한
 1. **2 라운드 연속 verified** - ACCEPT된 모든 이슈가 실제 diff에 반영 (`locus` ±5 규칙) AND Codex verify에서 `DISAGREE` 0건
 2. **2 라운드 연속 PASS + no_changes_suggested** - **단, 세션 이력에 `correctness`와 `security` 축이 각각 최소 1회씩 실행되어 있어야 유효** (게이밍 방지)
 3. **R5 hard cap** (오실레이션·토큰 드레인 방지)
-4. **`--gate "<cmd>"` exit 0** - 외부 게이트 통과 (종결 직전 1회, 또는 `--gate-every-round`)
+4. **`--gate "<cmd>"` exit 0** - 외부 게이트 통과 (종결 직전 1회)
 5. **사용자 `--stop`**
 
 Abort 트리거 (manual arbitration 후 `--continue`로 재개 가능):
 - Cumulative Codex 토큰 ≥ 500K
-- `forced_accept_count ≥ --force-accept-threshold` (default **1** = strict)
+- `forced_accept_count ≥ --force-accept-threshold` (default **2**, 보안/암호 코드는 `=1` strict)
 - Codex YAML 스키마 재시도 실패
 - Per-call context window ≥ 180K
 
@@ -140,19 +141,21 @@ Abort 트리거 (manual arbitration 후 `--continue`로 재개 가능):
 - **Verification loop (Phase 6)** - Claude의 모든 REJECT를 Codex가 재검증. `DISAGREE`면 다음 라운드로 이월, 2연속 `DISAGREE`는 `FORCED_ACCEPT`로 승격 (시스템 결정, Claude 선택 아님).
 - **ACCEPT diff 검증 (Phase 5)** - ACCEPT 이슈의 `locus` ±5줄이 실제 diff에 반영됐는지 체크. no-op ACCEPT는 다음 라운드 의제로 이월되며 수렴 카운트 제외.
 - **REJECT citation 강제** - `file:LINE` 또는 테스트명 인용 필수 (없으면 hard error, silent ACCEPT flip 금지).
-- **Shell-injection 방어** - Codex 호출은 **tempfile + stdin 전용**, argv 금지. 동적 프롬프트 섹션은 `cat <file> >>` 방식만 허용.
-- **Pre-flight 가드** - 실제 스크립트 `skills/mangchi/scripts/preflight.sh` (Phase 0): Bash 4+ / git / Python 3.8+ + PyYAML / Codex 유무, 파일 크기 (≤ 2000 LoC / ≤ 200KB unless `--force`), `--only-axes`가 correctness/security 중 하나라도 빼면 2-PASS 종결 경로 비활성 경고, 보안 민감 파일명의 self-review 거부, `robustness` 힌트, 그 다음 slug + 작업 디렉토리 + `updated.*` / `source-snapshot.*` / `state.json` 초기화.
+- **Codex 호출 계약을 코드로 (0.4.0)** - 모든 Codex 호출은 `skills/mangchi/scripts/codex-run.sh`(`review` / `verify`)로만 한다. 그래서 빠뜨릴 수 없다: Sandbox Safety Preamble이 맨 앞, 프롬프트는 파일로만 조립(축 rubric과 출력 포맷은 `axes.md`에서 절 단위 추출, `updated.*` 전문, 2라운드부터 `round-(N-1).carryover.md` 필수)해 tempfile + stdin으로 전달(argv 금지), Codex는 **read-only 샌드박스**(쓰기·네트워크 차단, `MANGCHI_CODEX_SANDBOX=bypass`는 요청 시만), Codex가 출력한 모든 것을 세션 디렉토리에 닿기 전에 secret scrub, 최종 답만 보관, YAML 답은 `scripts/mangchi_yaml.py`가 검증하고 스키마 재시도 1회를 스크립트가 센다. `bash scripts/codex-run.sh --selftest`가 가짜 Codex로 전부 검사한다.
+- **Pre-flight 가드** - 실제 스크립트 `skills/mangchi/scripts/preflight.sh` (Phase 0): Bash 4+ / git / Python 3.8+ + PyYAML / Codex ≥ 0.125.0, 파일 크기 (≤ 2000 LoC / ≤ 200KB unless `--force`), `--only-axes`가 correctness/security 중 하나라도 빼면 2-PASS 종결 경로 비활성 경고, 보안 민감 파일명의 self-review 거부, `robustness` 힌트, 그 다음 slug + 작업 디렉토리 + `updated.*` / `source-snapshot.*` / `state.json` 초기화.
 - **Token 예산** - per-call 180K context window (완전히 조립된 prompt 기준, hard abort), cumulative 150K 경고 / 500K abort.
 - **Codex 부재 시** - 대화형 환경에서만 self-review 확인 프롬프트 표시 (self-review는 verify loop + FORCED_ACCEPT 모두 비활성). 비대화형은 auto-abort (`--allow-self-review` 지정 시에만 자동 진행).
 - 각 라운드의 prompt / review / verify 원본이 감사 기록으로 보존됨 (`round-N.prompt.txt`, `.codex.txt`, `.verify.txt`). `INDEX.md`에 라운드별 요약표 자동 갱신.
 
-### Skill 파일 구조 (0.3.1)
+### Skill 파일 구조 (0.4.0)
 
 ```
 skills/mangchi/
-├── SKILL.md                     # 워크플로우 계약 (~380줄, 매 호출마다 로드)
+├── SKILL.md                     # 워크플로우 계약 (~425줄, 매 호출마다 로드)
 ├── axes.md                      # 축 rubric + YAML 출력 스키마 (SSOT)
 ├── scripts/preflight.sh         # Phase 0: 가드, robustness 힌트, slug, state.json 초기화
+├── scripts/codex-run.sh         # Phase 2/3/6: Codex 호출 (preamble, 샌드박스, scrub, 스키마 검증)
+├── scripts/mangchi_yaml.py      # axes.md 절 추출, verify context, YAML 검증
 ├── references/
 │   ├── state-schema.md          # state.json 스키마 (schema_version 1)
 │   ├── known-limits.md          # 설계 가정·탐지 한계 전체 목록
@@ -161,7 +164,7 @@ skills/mangchi/
 ├── CASE-STUDIES*.md, RESEARCH.md
 ```
 
-SKILL.md에는 규칙만 남기고 스키마·한계·preflight 코드는 위 파일로 분리했다. 호출 1회당 약 680줄 대신 약 380줄의 계약만 컨텍스트에 올라간다.
+SKILL.md에는 규칙만 남기고 스키마·한계·preflight 코드는 위 파일로 분리했다. 호출 1회당 약 680줄 대신 약 425줄의 계약만 컨텍스트에 올라간다.
 
 ---
 
@@ -170,9 +173,12 @@ SKILL.md에는 규칙만 남기고 스키마·한계·preflight 코드는 위 �
 ### 전제 조건
 
 ```bash
-# Codex CLI (리뷰어)
+# Codex CLI >= 0.125.0 (리뷰어, read-only 샌드박스 플래그 필요)
 npm install -g @openai/codex
 codex login    # 또는 OPENAI_API_KEY 환경변수 설정
+
+# Python 3.8+ + PyYAML (답 검증)
+python -m pip install pyyaml
 
 # Claude Code (오케스트레이터)
 # https://docs.claude.com/en/docs/claude-code

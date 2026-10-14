@@ -199,7 +199,7 @@ axis: <axis_name>                          # 원래 리뷰 축
 verifications:
   - issue_id: 1                            # 원 issues[].id 와 매칭
     verdict: AGREE | DISAGREE
-    reason: "<DISAGREE 시 파일:줄 인용 또는 구체 근거 필수, AGREE 시 선택>"
+    reason: "<DISAGREE 시 post-edit 코드의 파일:줄 인용 필수, AGREE 시 선택>"
 ```
 
 ### 제약 (모든 축 공통)

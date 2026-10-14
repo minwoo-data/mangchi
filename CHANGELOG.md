@@ -5,6 +5,78 @@ All notable changes to the Mangchi plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-10-14
+
+The Codex invocation contract becomes code, and Codex loses its unsandboxed
+shell. Same review algorithm, same YAML `schema_version` 1.
+
+### Security
+- **Codex runs in the read-only sandbox.** 0.3.x called
+  `codex exec --dangerously-bypass-approvals-and-sandbox` and argued that was
+  fine because mangchi only asks Codex to read - but the flag gave every shell
+  command Codex chose to run full file and network access. Codex now runs with
+  `-s read-only` (reads allowed, writes and network blocked).
+  `MANGCHI_CODEX_SANDBOX=bypass` is an explicit per-run opt-out, only when the
+  user asks.
+- **Sandbox Safety Preamble + secret scrub**, ported from prism 0.4.2 (the same
+  shared core triad 0.3.0 carries): every prompt starts with the policy that
+  forbids `docker compose config`, env dumps and reading credential files (the
+  2026-05-22 leak vector), and everything Codex printed - raw stream, final
+  answer, a prompt rewritten mid-run - is scanned before anything reaches
+  `docs/refinement/mangchi/<slug>/`. A secret-shaped string that was not in the
+  prompt quarantines the call (`status=secret-scrubbed(...)`, outputs
+  destroyed, never auto-retried). Credential-shaped working copies are refused.
+- Unscrubbed Codex output lives only in a temp scratch dir outside the session
+  dir (swept if a run is hard-killed); one attempt per call at a time (lock).
+
+### Added
+- **`skills/mangchi/scripts/codex-run.sh`** - `review <dir> <N> <axis>`,
+  `verify <dir> <N> --issues <file>`, `scrub <file>...`, `--selftest`. It
+  assembles the prompt from files only (role + the round's axis rubric and the
+  output format cut out of `axes.md` by section - a missing section is exit 2 -
+  then the full `updated.<ext>`, then from round 2 the required
+  `round-(N-1).carryover.md`), sends it via tempfile + stdin, pins effort high,
+  applies the 300 s timeout and the `char/4*1.3 >= 180K` guard, keeps only the
+  `--output-last-message` answer, and enforces the R5 cap. Output: one summary
+  line + a result JSON next to each answer (`round-N.codex.txt.json`).
+- **`skills/mangchi/scripts/mangchi_yaml.py`** - the Phase 3 / Phase 6 schema
+  rules as code (was prose the model applied by eye): axis must equal the
+  call's axis, enums, `file:LINE` locus, unique ids; verify must answer every
+  REJECTed issue exactly once and cite `file:line` on DISAGREE. Also builds the
+  verify context (post-edit `updated.<ext>` ±10 lines, clamped,
+  `post_edit_lines` override) and checks the REJECT file (Phase 4 citation rule
+  is now a hard exit 2, not just an instruction).
+- **Single schema retry counted by the script** - `--retry` once per call; a
+  second `--retry` or a fresh call after `schema-invalid` is exit 2. The first
+  answer is kept as `round-N.codex.attempt1.txt`.
+- **Round carryover file** - Phase 8 writes `round-N.carryover.md`
+  (`## decisions` / `## carryover` / `## forced_accept`); round N+1 refuses to
+  run without it (`--no-carryover` to opt out on purpose), so the FORCED_ACCEPT
+  "do not re-raise" list cannot silently drop out of the prompt.
+- Token accounting from Codex's own `tokens used` line when present
+  (`tokens.estimate_only: false`), else the estimate.
+- `.gitattributes` keeps `*.sh` / `*.py` LF on Windows clones.
+
+### Fixed
+- **preflight.sh path normalisation deleted every `/`** - `${FILE//\//}`
+  (a backslash lost in an earlier heredoc) turned `src/routes/auth.py` into
+  `srcroutesauth.py`, so preflight failed on any path with a directory. Now
+  `${FILE//\\//}` (backslashes to slashes, as the comment always said).
+- **preflight.sh picked the Windows Store `python3` stub** and then reported
+  "PyYAML missing" even with PyYAML installed under `python`. Each candidate
+  (`MANGCHI_PYTHON`, `python3`, `python`) is now probed for a working 3.8+.
+- preflight.sh requires Codex CLI >= 0.125.0 (sandbox flags).
+- **Doc drift left over from 0.2.1**: `templates/round.md` still had the 80K
+  per-round guard + `--force-round`, `forced_accept_count >= 3`, and "correctness
+  + security 중 최소 1회"; `commands/mangchi.md` still listed `--force-round`,
+  `--dry-run`, `--gate-every-round` and threshold default 1; READMEs said
+  `--gate-every-round` / default 1; `usage.md` and `converged.md` said 80K;
+  `converged.md` used termination-reason names that `state-schema.md` does not
+  have; `state-schema.md` still had `gate_every_round` / `force_round_rounds`.
+  All now match SKILL.md (180K per call, threshold default 2, correctness AND
+  security each >= 1, state-schema termination reasons). README.ko's diagram
+  still offered `DEFER` (removed in schema v1).
+
 ## [0.3.1] - 2026-10-13
 
 Axis-ownership cleanup + SKILL.md diet + version sync. No schema change

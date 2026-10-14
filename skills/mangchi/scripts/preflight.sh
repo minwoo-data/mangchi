@@ -15,6 +15,7 @@
 #   GATE_CMD                value of --gate
 #   REFINEMENT_ROOT         default docs/refinement/mangchi
 #   SKIP_ENV_CHECK=1        skip the PyYAML probe (CI images that parse YAML elsewhere)
+#   MANGCHI_PYTHON          interpreter to use (default: first working python3 / python)
 #
 # Exit codes: 0 ready, 1 hard failure (message on stderr).
 # On success prints KEY=VALUE lines (SLUG, DIR, EXT, LOC, BYTES, CODEX,
@@ -34,17 +35,32 @@ warn() { echo "[WARN] $*" >&2; }
 [ "${BASH_VERSINFO[0]}" -ge 4 ] || err "Bash 4+ required (declare -A). Current: ${BASH_VERSION}. macOS: brew install bash. Windows: Git Bash 4.4+ or WSL."
 command -v git >/dev/null 2>&1 || err "git not in PATH (diff measurement requires it)"
 PY=""
-if command -v python3 >/dev/null 2>&1; then PY=python3; elif command -v python >/dev/null 2>&1; then PY=python; fi
-[ -n "$PY" ] || err "Python 3.8+ not found (YAML parsing)"
+# Probe each candidate: a Windows Store "python3" alias is on PATH but only prints an install hint.
+for c in ${MANGCHI_PYTHON:+"$MANGCHI_PYTHON"} python3 python; do
+  command -v "$c" >/dev/null 2>&1 || continue
+  "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1 || continue
+  PY="$c"; break
+done
+[ -n "$PY" ] || err "Python 3.8+ not found (YAML parsing). Set MANGCHI_PYTHON if it is not on PATH."
 if [ -n "$PY" ] && [ -z "${SKIP_ENV_CHECK:-}" ]; then
-  "$PY" -c "import yaml" 2>/dev/null || err "PyYAML missing. Install: pip install pyyaml"
+  "$PY" -c "import yaml" 2>/dev/null || err "PyYAML missing. Install: $PY -m pip install pyyaml"
 fi
 CODEX=0
-if command -v codex >/dev/null 2>&1; then CODEX=1; else warn "Codex CLI missing. See SKILL.md §'Codex 부재 시 동작' for routing."; fi
+if command -v codex >/dev/null 2>&1; then
+  # scripts/codex-run.sh runs Codex with -s read-only, --output-last-message and -c model_reasoning_effort.
+  CODEX_VER="$(codex --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ -z "$CODEX_VER" ] || [ "$(printf '%s\n%s\n' 0.125.0 "$CODEX_VER" | sort -V | head -1)" != 0.125.0 ]; then
+    err "Codex CLI >= 0.125.0 required (read-only sandbox flags), found '${CODEX_VER:-unknown}'. Update: npm install -g @openai/codex@latest"
+  else
+    CODEX=1
+  fi
+else
+  warn "Codex CLI missing. See SKILL.md §'Codex 부재 시 동작' for routing."
+fi
 [ "$fail" -eq 0 ] || exit 1
 
 # ── Step 2: input validity + path normalisation ──
-FILE="${FILE//\//}"   # Windows backslashes -> slashes (Git Bash)
+FILE="${FILE//\\//}"   # Windows backslashes -> slashes (Git Bash)
 [ -f "$FILE" ] || { echo "[ERROR] File not found: $FILE" >&2; exit 1; }
 
 # ── Step 3: size guard ──
