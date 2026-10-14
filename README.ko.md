@@ -2,9 +2,9 @@
 
 **Language**: [English](README.md) · **한국어**
 
-**한 AI 모델로만 코드를 다듬으면 같은 편향·맹점이 반복되어, 같은 버그가 여러 라운드를 통과해 남지는 않나요?** mangchi는 Claude가 편집하고 Codex가 5개 축(correctness / security / readability / performance / design)을 순환하며 비판하는 교차 검증 루프로, 한 모델의 사각지대를 다른 모델이 잡아주며 코드가 수렴할 때까지 반복합니다.
+**한 AI 모델로만 코드를 다듬으면 같은 편향·맹점이 반복되어, 같은 버그가 여러 라운드를 통과해 남지는 않나요?** mangchi는 Claude가 편집하고 Codex가 리뷰 축(기본 5개: correctness / security / readability / performance / design, opt-in `necessity` / `robustness`)을 순환하며 비판하는 교차 검증 루프로, 한 모델의 사각지대를 다른 모델이 잡아주며 코드가 수렴할 때까지 반복합니다.
 
-> 기존 코드 파일 하나를 cross-model 반복 리뷰로 망치질합니다. Claude가 수정·판단하고 Codex CLI가 축별(correctness / security / readability / performance / design)로 비판. 수렴하거나 cap에 도달할 때까지 반복.
+> 기존 코드 파일 하나를 cross-model 반복 리뷰로 망치질합니다. Claude가 수정·판단하고 Codex CLI가 축별(기본 correctness / security / readability / performance / design + opt-in necessity / robustness)로 비판. 수렴하거나 cap에 도달할 때까지 반복.
 
 ---
 
@@ -20,7 +20,7 @@ Claude에게 `auth.py`를 하드닝해달라고 함. Claude가 자기 코드를 
 
 ## 누가 써야 하는가
 
-- **출시 직전 프로덕션 코드** - 단일 파일을 5개 축에서 sweep
+- **출시 직전 프로덕션 코드** - 단일 파일을 기본 5개 축에서 sweep (stateful 코드면 opt-in `robustness` 추가)
 - **프롬프트 주입 / 보안 방어 코드** - 다른 모델의 adversarial 2차 검토
 - **Claude Max 사용자 + Claude 토큰 여유** 가 있지만 외부 cross-model 리뷰가 필요하고 Codex를 수동으로 돌리긴 귀찮을 때
 - **correctness / security / readability / performance / design** 한 번에 sweep
@@ -93,17 +93,25 @@ Mangchi가 타깃하는 지점은 **"코드는 있는데 더 견고해져야 한
 
 | 축 | 던지는 질문 | 기본 |
 |---|---|---|
-| `correctness` | 모든 입력 형태에서 올바르게 동작하는가? | ✓ |
-| `security` | 어떤 공격 표면을 노출하는가? | ✓ |
-| `readability` | 6개월 뒤에도 기여자가 이해하고 변경할 수 있는가? | ✓ |
+| `correctness` | 모든 입력 형태에서 single-threaded 계약대로 동작하는가? (race는 지적하지 않음 - `robustness` 소관) | ✓ |
+| `security` | 어떤 공격 표면을 노출하는가? (TOCTOU는 공격자가 타이밍을 조작하는 경우만) | ✓ |
+| `readability` | 6개월 뒤에도 기여자가 이해하고 변경할 수 있는가? (함수 길이·인자 수·중첩은 이 축) | ✓ |
 | `performance` | I/O, 메모리, CPU를 어디서 낭비하는가? | ✓ |
-| `design` | 1년 뒤에도 유지 가능한 설계인가? | ✓ |
+| `design` | 1년 뒤에도 유지 가능한 설계인가? (SRP는 책임 혼합만, 길이는 아님) | ✓ |
 | `necessity` | 이 추가가 정말 필요한가? 기존 인프라로 해결되지 않는가? (YAGNI) | opt-in - `--include-axes=necessity` |
-| `robustness` | 동시성·장애복구·데이터무결성·상태전이 4축에서 버티는가? | opt-in - `--include-axes=robustness` |
+| `robustness` | 동시성·장애복구·데이터무결성·상태전이 4축에서 버티는가? **동시성 finding의 단일 소유자.** | opt-in - `--include-axes=robustness` |
+
+**축 소유권 (0.3.1).** 모든 finding은 집이 하나다. 동시성 - 공유 상태 race, lost update, double-submit, 공격자 없는 TOCTOU - 는 `robustness`만 다룬다. `correctness`는 single-threaded 계약만 보고 race finding은 스스로 제외한다. `security`는 공격자가 check-to-use 간격을 의도적으로 벌리는 TOCTOU만 남긴다. 마찬가지로 "함수가 너무 길다"는 `readability`, `design`의 SRP 항목은 진짜 책임 혼합에만 쓴다. 0.3.1 이전엔 같은 race가 세 축에 나뉘어 올라와 신호가 쪼개졌다.
 
 `robustness`는 runtime 장애 시나리오 probe - 리뷰어가 4개 sub-axis(concurrency / failure & recovery / data integrity / state transitions)를 전부 순회 (해당 없으면 N/A with reason 명시). `correctness`가 "해피 패스에서 계약을 만족하는가"라면 `robustness`는 "adversarial runtime에서 버티는가" - 직교하는 질문. 순수 함수·stateless 코드엔 신호가 없으므로 opt-in.
 
-둘 다 켜려면: `--include-axes=necessity,robustness`.
+**Robustness 힌트.** race가 `robustness`에만 있으므로, preflight 스크립트가 대상 파일에서 stateful 마커(`threading`, `asyncio` / `await`, `Lock(`, `transaction` / `commit(` / `rollback`, `INSERT` / `UPDATE` / `DELETE`, `session.` / `cursor.`, `fetch(` / `requests.` / `httpx`, `state_machine`, `status =`)를 grep해 하나라도 있으면 출력한다:
+
+```
+[HINT] stateful code detected — consider --include-axes=robustness
+```
+
+힌트일 뿐 축을 자동으로 켜지는 않는다. 둘 다 켜려면: `--include-axes=necessity,robustness`.
 
 ---
 
@@ -133,10 +141,27 @@ Abort 트리거 (manual arbitration 후 `--continue`로 재개 가능):
 - **ACCEPT diff 검증 (Phase 5)** - ACCEPT 이슈의 `locus` ±5줄이 실제 diff에 반영됐는지 체크. no-op ACCEPT는 다음 라운드 의제로 이월되며 수렴 카운트 제외.
 - **REJECT citation 강제** - `file:LINE` 또는 테스트명 인용 필수 (없으면 hard error, silent ACCEPT flip 금지).
 - **Shell-injection 방어** - Codex 호출은 **tempfile + stdin 전용**, argv 금지. 동적 프롬프트 섹션은 `cat <file> >>` 방식만 허용.
-- **Pre-flight 가드** - Bash 4+ 체크, 파일 크기 (≤ 2000 LoC / ≤ 200KB unless `--force`), `--only-axes`가 correctness/security 중 하나라도 빼면 2-PASS 종결 경로 비활성 경고.
-- **Token 예산** - per-round 80K 추정 cap (`--force-round` bypass), per-call 180K context window (hard abort), cumulative 150K 경고 / 500K abort.
+- **Pre-flight 가드** - 실제 스크립트 `skills/mangchi/scripts/preflight.sh` (Phase 0): Bash 4+ / git / Python 3.8+ + PyYAML / Codex 유무, 파일 크기 (≤ 2000 LoC / ≤ 200KB unless `--force`), `--only-axes`가 correctness/security 중 하나라도 빼면 2-PASS 종결 경로 비활성 경고, 보안 민감 파일명의 self-review 거부, `robustness` 힌트, 그 다음 slug + 작업 디렉토리 + `updated.*` / `source-snapshot.*` / `state.json` 초기화.
+- **Token 예산** - per-call 180K context window (완전히 조립된 prompt 기준, hard abort), cumulative 150K 경고 / 500K abort.
 - **Codex 부재 시** - 대화형 환경에서만 self-review 확인 프롬프트 표시 (self-review는 verify loop + FORCED_ACCEPT 모두 비활성). 비대화형은 auto-abort (`--allow-self-review` 지정 시에만 자동 진행).
 - 각 라운드의 prompt / review / verify 원본이 감사 기록으로 보존됨 (`round-N.prompt.txt`, `.codex.txt`, `.verify.txt`). `INDEX.md`에 라운드별 요약표 자동 갱신.
+
+### Skill 파일 구조 (0.3.1)
+
+```
+skills/mangchi/
+├── SKILL.md                     # 워크플로우 계약 (~380줄, 매 호출마다 로드)
+├── axes.md                      # 축 rubric + YAML 출력 스키마 (SSOT)
+├── scripts/preflight.sh         # Phase 0: 가드, robustness 힌트, slug, state.json 초기화
+├── references/
+│   ├── state-schema.md          # state.json 스키마 (schema_version 1)
+│   ├── known-limits.md          # 설계 가정·탐지 한계 전체 목록
+│   └── usage.md                 # 모든 flag + 예시
+├── templates/                   # round.md, converged.md, index.md
+├── CASE-STUDIES*.md, RESEARCH.md
+```
+
+SKILL.md에는 규칙만 남기고 스키마·한계·preflight 코드는 위 파일로 분리했다. 호출 1회당 약 680줄 대신 약 380줄의 계약만 컨텍스트에 올라간다.
 
 ---
 
@@ -176,6 +201,7 @@ codex login    # 또는 OPENAI_API_KEY 환경변수 설정
 /mangchi src/services/auth.py --apply=original            # 원본 파일도 Edit
 /mangchi src/utils/hash.py --only-axes=correctness,security  # 지정 축만 순환 (기본 5축 대체)
 /mangchi src/new_module.py --include-axes=necessity       # 기본 5축 + necessity opt-in
+/mangchi src/orders.py --include-axes=robustness          # 동시성·장애복구 축 추가 (stateful 코드면 preflight가 힌트)
 /mangchi src/auth.py --start-axis=security                # R1 시작 축 지정 (기본 correctness)
 /mangchi src/parse.py --gate "pytest -x tests/"           # 외부 게이트 통과 필수
 /mangchi src/x.py --no-verify                             # Phase 6 verify 스킵 (adversarial 가치 상실)

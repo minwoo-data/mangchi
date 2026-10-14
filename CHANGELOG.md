@@ -5,6 +5,48 @@ All notable changes to the Mangchi plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-10-13
+
+Axis-ownership cleanup + SKILL.md diet + version sync. No schema change
+(`schema_version` stays 1).
+
+### Changed
+- **Concurrency has one owner: `robustness`.** `correctness` no longer lists
+  "레이스 조건" (moved to its do-not-flag list with a pointer to robustness);
+  `security` keeps TOCTOU only when the attacker controls the timing and says
+  so explicitly. Previously the same race could land in three axes and the
+  signal was split.
+- **readability vs design disambiguated** - function length / arity / nesting
+  stay in `readability`; `design`'s SRP item is now "mixed responsibilities
+  only", with a note that length alone is not an SRP finding.
+- **Phase 0 preflight is a real script** - `skills/mangchi/scripts/preflight.sh`
+  (env check, size guard, axis-coverage warning, security-sensitive refusal
+  when Codex is absent, slug + dir + `updated.*` / snapshot / `state.json`
+  init). SKILL.md keeps a 5-line summary and the invocation; flags are passed
+  as env vars (`FORCE`, `ONLY_AXES`, `INCLUDE_AXES`, `START_AXIS`, `GATE_CMD`,
+  `NO_VERIFY`, `FORCE_ACCEPT_THRESHOLD`, `REFINEMENT_ROOT`, `SKIP_ENV_CHECK`).
+- **SKILL.md 683 → ~380 lines** without dropping a rule: state.json schema →
+  `references/state-schema.md`; Known Limits → `references/known-limits.md`
+  (3-bullet summary stays); INDEX.md template → `templates/index.md`; the
+  in-body "Changelog (이 SKILL 자체)" section removed (this file is the SSOT);
+  Codex-call invariants folded into Phase 2 (were duplicated in a separate
+  section); Phase 3/6 code blocks replaced by the equivalent prose contract;
+  the self-declared-duplicate "축 로테이션 규칙" section folded into Phase 1.
+- **Version sync** - `plugin.json` / `marketplace.json` were still 0.2.2 while
+  this changelog already had 0.3.0 (robustness axis). Both now 0.3.1; the
+  description mentions the two opt-in axes.
+
+### Added
+- **Robustness hint in preflight** - if the target contains stateful markers
+  (`threading|asyncio|await|Lock(|transaction|commit(|rollback|INSERT|UPDATE|
+  DELETE|session.|cursor.|fetch(|requests.|httpx|state_machine|status =`) the
+  script prints `[HINT] stateful code detected — consider
+  --include-axes=robustness`. It never auto-enables the axis.
+
+### Notes
+- 0.3.0 (robustness axis) was recorded here on 2026-04-21 but never
+  reflected in the manifests - this release closes that gap.
+
 ## [0.3.0] - 2026-04-21
 
 ### Added
