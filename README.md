@@ -2,7 +2,7 @@
 
 **Language**: **English** · [한국어](README.ko.md)
 
-**One model editing its own code keeps reinforcing its own blind spots, so the same bug survives multiple review passes?** mangchi alternates Claude-as-editor with Codex-as-reviewer across 5 rotating axes (correctness / security / readability / performance / design), catching each model's blind spots with the other until the code converges.
+**One model editing its own code keeps reinforcing its own blind spots, so the same bug survives multiple review passes?** mangchi alternates Claude-as-editor with Codex-as-reviewer across rotating review axes (5 default: correctness / security / readability / performance / design, plus opt-in `necessity` / `robustness`), catching each model's blind spots with the other until the code converges.
 
 > Claude writes, Codex critiques, Claude decides. Rotating review axes until
 > the code stops moving or you hit the cap. Like hammering metal into shape
@@ -22,7 +22,7 @@ You ask Claude to harden `auth.py`. It reviews itself, says "good enough", you s
 
 ## Who should use this
 
-- **Production-bound code you want to harden before release** - single-file sweep across 5 axes
+- **Production-bound code you want to harden before release** - single-file sweep across the 5 default axes (plus opt-in `robustness` for stateful code)
 - **Prompt-injection and security defense code** - adversarial second opinion from a different model
 - **Claude Max users with spare Claude tokens** but needing external cross-model review without running Codex by hand
 - **Correctness / security / readability / performance / design** sweep in one loop
@@ -115,6 +115,7 @@ Restart Claude Code after install. Upgrades are a single `/plugin update` - the 
 /mangchi src/services/auth.py --apply=original        # also Edit the original file
 /mangchi src/utils/hash.py --only-axes=correctness,security   # restrict axis rotation
 /mangchi src/new_module.py --include-axes=necessity   # default 5 + necessity opt-in
+/mangchi src/orders.py --include-axes=robustness      # add the concurrency / failure-recovery axis (preflight hints this for stateful code)
 /mangchi src/auth.py --start-axis=security            # R1 starts on security (not default correctness)
 /mangchi src/parse.py --gate "pytest -x tests/"       # require external gate before CONVERGED
 /mangchi src/x.py --no-verify                         # skip verify loop (adversarial guarantee lost)
@@ -130,20 +131,28 @@ See `skills/mangchi/references/usage.md` for every flag and more examples.
 
 | Axis | Question it asks | Default |
 |---|---|---|
-| `correctness` | Does the code behave right on every input shape? | ✓ |
-| `security` | What attack surface does this expose? | ✓ |
-| `readability` | Can a contributor understand & change this in 6 months? | ✓ |
+| `correctness` | Does the code behave right on every input shape, single-threaded? (never flags races - that is `robustness`) | ✓ |
+| `security` | What attack surface does this expose? (TOCTOU only when the attacker controls the timing) | ✓ |
+| `readability` | Can a contributor understand & change this in 6 months? (owns function length, arity, nesting) | ✓ |
 | `performance` | Where is it wasting I/O, memory, or cycles? | ✓ |
-| `design` | Will this still be maintainable in a year? | ✓ |
+| `design` | Will this still be maintainable in a year? (SRP = mixed responsibilities only, not length) | ✓ |
 | `necessity` | Is this new code necessary, or does existing infra cover it? (YAGNI) | opt-in via `--include-axes=necessity` |
-| `robustness` | Does it survive on concurrency / failure-recovery / data-integrity / state-transitions? | opt-in via `--include-axes=robustness` |
+| `robustness` | Does it survive concurrency / failure-recovery / data-integrity / state-transitions? **Sole owner of all concurrency findings.** | opt-in via `--include-axes=robustness` |
 
 Each round uses exactly one axis. **Adjacent rounds cannot repeat an axis** -
 rotation is enforced so you don't get five "correctness" rounds in a row.
 
+**Axis ownership (0.3.1).** Every finding has exactly one home. Concurrency - shared-state races, lost updates, double-submit, TOCTOU without an attacker - belongs to `robustness` only; `correctness` reviews the single-threaded contract and self-rejects race findings; `security` keeps TOCTOU only when the attacker deliberately widens the check-to-use gap. Likewise `readability` owns "this function is too long", while `design`'s SRP item is reserved for genuinely mixed responsibilities. Before 0.3.1 the same race could be filed under three axes and the signal was split.
+
 `robustness` is a 4-sub-axis runtime-failure probe - the reviewer must walk all four sub-axes (concurrency, failure & recovery, data integrity, state transitions) per round, or mark N/A with reason. It's orthogonal to `correctness` (which asks "does it meet its contract on the happy path?") - `robustness` asks "does it survive adversarial runtime conditions?". Opt-in because pure/stateless code has no realistic signal on these axes.
 
-To enable both opt-in axes: `--include-axes=necessity,robustness`.
+**Robustness hint.** Because races now live only in `robustness`, the preflight script greps the target for stateful markers (`threading`, `asyncio` / `await`, `Lock(`, `transaction` / `commit(` / `rollback`, `INSERT` / `UPDATE` / `DELETE`, `session.` / `cursor.`, `fetch(` / `requests.` / `httpx`, `state_machine`, `status =`). On a hit it prints:
+
+```
+[HINT] stateful code detected — consider --include-axes=robustness
+```
+
+It is a hint only - the axis is never enabled automatically. To enable both opt-in axes: `--include-axes=necessity,robustness`.
 
 ## Termination (v2 schema)
 
@@ -182,18 +191,39 @@ Aborts (session can be resumed with `--continue` after manual arbitration):
 - **Shell-injection-safe Codex calls** - strict tempfile + stdin pattern; no
   argv interpolation. All dynamic prompt content appended via
   `cat <file> >>` (never via unquoted variable expansion).
-- **Pre-flight guards** - Bash 4+, file size (≤ 2000 LoC / ≤ 200KB unless
-  `--force`), 2-PASS coverage warning if `--only-axes` excludes correctness
-  or security.
-- **Token budget** - per-round (80K estimate cap, `--force-round` bypass),
-  per-call (180K context window, hard abort), cumulative (150K warn, 500K
-  abort).
+- **Pre-flight guards** - a real script, `skills/mangchi/scripts/preflight.sh`
+  (Phase 0): Bash 4+ / git / Python 3.8+ + PyYAML / Codex presence, file
+  size (≤ 2000 LoC / ≤ 200KB unless `--force`), 2-PASS coverage warning if
+  `--only-axes` excludes correctness or security, hard refusal of self-review
+  on security-sensitive filenames, the `robustness` hint, then slug + working
+  dir + `updated.*` / `source-snapshot.*` / `state.json` initialisation.
+- **Token budget** - per-call (180K context window, measured on the fully
+  assembled prompt, hard abort), cumulative (150K warn, 500K abort).
 - **Codex missing handling** - interactive confirmation before self-review
   (which disables verify loop + `FORCED_ACCEPT`). Non-interactive envs
   auto-abort unless `--allow-self-review` passed.
 - Each round's Codex prompt, review response, and verify response are
   preserved as audit trail (`round-N.prompt.txt`, `.codex.txt`,
   `.verify.txt`). `INDEX.md` summarizes all rounds.
+
+### Skill layout (0.3.1)
+
+```
+skills/mangchi/
+├── SKILL.md                     # the workflow contract (~380 lines; loaded on every call)
+├── axes.md                      # axis rubrics + YAML output schema (SSOT)
+├── scripts/preflight.sh         # Phase 0: guards, robustness hint, slug, state.json init
+├── references/
+│   ├── state-schema.md          # state.json schema (schema_version 1)
+│   ├── known-limits.md          # full list of design assumptions and detection limits
+│   └── usage.md                 # every flag with examples
+├── templates/                   # round.md, converged.md, index.md
+├── CASE-STUDIES*.md, RESEARCH.md
+```
+
+SKILL.md deliberately carries only the rules; schemas, limits and the
+preflight code live in the files above so each invocation pays for ~380
+lines of contract instead of ~680.
 
 ## Research backing
 
