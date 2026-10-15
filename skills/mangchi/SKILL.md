@@ -1,6 +1,15 @@
 ---
 name: mangchi
 description: Iterative code refinement - Claude edits, Codex CLI adversarially reviews one of 5 axes per round, verifies Claude's REJECTs on a second call. Stops on 2 clean rounds / 2 PASS / R5 cap / optional --gate. Existing code file ≤2000 LoC. Requires Codex CLI; /triad for Codex-free review.
+argument-hint: "<file> [--apply=original] [--only-axes=a,b] [--include-axes=necessity] [--start-axis=security] [--gate \"cmd\"] [--no-verify] [--allow-self-review] [--force] [--force-accept-threshold=N] | --continue <slug> | --stop <slug>"
+user-invocable: true
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
 ---
 
 # Mangchi - Iterative Code Refinement (망치)
@@ -35,12 +44,40 @@ pumasi는 "Codex가 구현, Claude가 감독"; mangchi는 **"Claude가 구현+�
 5. **같은 축 2연속 금지**. 라운드 N의 축 ≠ 라운드 N-1의 축.
 6. **Codex는 adversary**. Claude가 모든 REJECT를 할 수 없다 - Codex가 verify 단계에서 DISAGREE하면 다음 라운드 선행 의제로 이월, 2연속 DISAGREE → 강제 ACCEPT.
 7. **Codex 호출은 `scripts/codex-run.sh`로만**. 스크립트가 Sandbox Safety Preamble·프롬프트 조립·`tempfile + stdin`(argv 금지)·read-only 샌드박스·secret scrub·YAML 스키마 검증을 강제한다. `codex exec`를 직접 부르지 않는다.
+8. **라운드를 건너뛰지 않는다**. Phase 7 종결 조건이 서기 전까지 매 라운드 Codex review를 실제로 돌린다.
 
 ## 요구사항
 
 Bash 4+ (Windows는 Git Bash 4.4+/WSL) · Git (`git diff -w --numstat`) · Python 3.8+ + PyYAML (응답 파싱) · Codex CLI ≥ 0.125.0 권장 (read-only 샌드박스 플래그; 없으면 대화형 확인 후 self-review). 전부 `scripts/preflight.sh`가 한 번에 검사한다.
 
 ## 트리거 (CLI flags)
+
+### 인자 해석 (`/mangchi` 호출)
+
+사용자가 `/mangchi ...`로 부르면 인자 문자열이 이 문서 끝에 `ARGUMENTS: ...`로 붙는다. 아래 표의 플래그로 해석한다.
+
+- **인자 없음** → AskUserQuestion으로 고르게 한 뒤, 고른 파일 경로나 slug로 다시 해석한다:
+
+  ```json
+  {
+    "questions": [
+      {
+        "question": "Which file do you want to harden?",
+        "header": "Mangchi (망치)",
+        "options": [
+          {"label": "Enter file path", "description": "Provide a path to an existing code file (e.g., src/services/auth.py)"},
+          {"label": "Continue session", "description": "Resume an in-progress mangchi session - you'll be asked for the slug next"},
+          {"label": "Stop session", "description": "Force-close an in-progress session and write CONVERGED.md"}
+        ],
+        "multiSelect": false
+      }
+    ]
+  }
+  ```
+
+- **`*.md` 대상** → mangchi는 코드용이라고 경고하고 문서는 `/triad`를 권한다.
+- **옛 별칭** `--axes=+necessity`는 `--include-axes=necessity`로 받는다 (한 버전 유지).
+- **`--continue <slug>`의 옛 세션**: `state.json`에 `schema_version`이 없으면 설계가 달랐던 세션이라고 먼저 경고한다. `schema_version` 1인데 `mangchi_version`이 없으면 0.3.x 세션이라 `codex-run.sh`가 exit 2로 멈춘다. 이때 이주 절차: state.json에서 `round-(N-1).carryover.md`를 쓰고, `.json` 없는 `round-N.codex.txt`는 옆으로 옮기고, state.json에 `"mangchi_version": "0.4.0"`을 넣은 뒤 이어간다.
 
 ### 자주 쓰는 플래그 (Essential - first-time users)
 
@@ -342,6 +379,8 @@ docs/refinement/mangchi/
     ├── ...
     └── CONVERGED.md                 # 최종 리포트 (템플릿: converged.md)
 ```
+
+**사용자가 받는 것**: `CONVERGED.md`(verify 결과·forced accept 포함 전체 판정 요약), 매 라운드 다시 쓰는 `INDEX.md`(라운드별 표), `git diff -w --numstat`로 보는 `source-snapshot.*` 대 `updated.*` 차이. 원본 교체는 `cp updated.<ext> <원본>`(이후 `--continue` 불가) 또는 `--apply=original`로 다시 실행.
 
 ## state.json
 
