@@ -5,6 +5,33 @@ All notable changes to the Mangchi plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-10-14
+
+`/mangchi` runs the skill directly. The duplicate `commands/mangchi.md` is gone:
+it listed a second `mangchi` entry (~70 always-on tokens) and its body (~4.6k
+tokens) was read on top of SKILL.md on every invocation.
+
+### Changed
+- `skills/mangchi/SKILL.md` frontmatter gains `user-invocable: true`, the
+  command's `argument-hint` and `allowed-tools`.
+- What only the command file had moved into SKILL.md:
+  - no-argument AskUserQuestion menu (JSON unchanged), `ARGUMENTS:` handling,
+    `*.md` -> `/triad` warning, `--axes=+necessity` alias, the legacy
+    (`schema_version` absent) warning and the 0.3.x migration steps
+    -> new `### 인자 해석 (/mangchi 호출)` under `## 트리거`;
+  - "Claude never skips a review round" -> `## 핵심 불변식` #8;
+  - output expectations (CONVERGED.md, INDEX.md, snapshot diff, how to replace
+    the original) -> a paragraph after `## 파일 구조`.
+- Already in SKILL.md, so not duplicated: the flag table, prerequisites
+  (preflight), the other invariants, termination, degraded / `secret-scrubbed`
+  handling and `--after-incident`, full file never elided, `R{n}.{axis}#{id}`,
+  `carried:` re-verify.
+- `.claude-plugin/plugin.json` drops `"commands": "./commands/"`.
+- `codex-run.sh` doc gate scans any `commands/*.md` that is added back; a new
+  `entry_gate` selftest check fails if SKILL.md loses `user-invocable`, the
+  argument-hint, the argument section or the menu, or plugin.json points at
+  `commands/` again.
+
 ## [0.4.0] - 2026-10-14
 
 The Codex invocation contract becomes code, and Codex loses its unsandboxed

@@ -967,12 +967,26 @@ selfscan_clean() {
   out="$(secret_strings "$@")" && [ -z "$out" ]
 }
 
+# 0 = SKILL.md is the /mangchi entry point: user-invocable, argument-hint, the argument section with
+# the no-argument menu, and no commands/ entry left in plugin.json (the command file was folded in, 0.4.1).
+entry_gate() {
+  local skill="$1" head
+  head="$(sed -n '2,/^---$/p' "$skill/SKILL.md" | tr -d '\r')"
+  printf '%s\n' "$head" | grep -qx 'user-invocable: true' \
+    && printf '%s\n' "$head" | grep -q '^argument-hint: "<file>' \
+    && grep -q '^### 인자 해석 (`/mangchi` 호출)' "$skill/SKILL.md" \
+    && grep -q '"header": "Mangchi (망치)"' "$skill/SKILL.md" \
+    && grep -q 'ARGUMENTS: \.\.\.' "$skill/SKILL.md" \
+    && ! grep -q '"commands"' "$skill/../../.claude-plugin/plugin.json"
+}
+
 # 0 = no shipped instruction file calls codex exec or the bypass flag directly. CHANGELOG and the
 # case studies are history and stay out (PRISM-032).
 doc_gate() {
   local skill="$1" files=() f
+  # commands/ is gone since 0.4.1 (/mangchi runs the skill); any command file added back is scanned.
   for f in "$skill/SKILL.md" "$skill/templates/round.md" "$skill/references/usage.md" \
-           "$skill/../../commands/mangchi.md" "$skill/../../README.md" "$skill/../../README.ko.md"; do
+           "$skill"/../../commands/*.md "$skill/../../README.md" "$skill/../../README.ko.md"; do
     [ -f "$f" ] && files+=("$f")
   done
   grep -q "scripts/codex-run.sh\" review" "$skill/SKILL.md" && grep -q "scripts/codex-run.sh\" verify" "$skill/SKILL.md" \
@@ -1488,6 +1502,11 @@ FAKE
   cp "$SKILL_DIR/SKILL.md" "$T/plug/skills/mangchi/"; cp "$SKILL_DIR/templates/round.md" "$T/plug/skills/mangchi/templates/"
   { cat "$SKILL_DIR/../../commands/mangchi.md" 2>/dev/null; echo 'codex exec --dangerously-bypass-approvals-and-sandbox < prompt'; } > "$T/plug/commands/mangchi.md"
   check "... and the doc gate does look at commands/mangchi.md" '! doc_gate "$T/plug/skills/mangchi"'
+  check "SKILL.md is the /mangchi entry point (user-invocable, argument-hint, argument section + no-arg menu, no commands/ in plugin.json)" 'entry_gate "$SKILL_DIR"'
+  mkdir -p "$T/plug2/skills/mangchi" "$T/plug2/.claude-plugin"
+  cp "$SKILL_DIR/../../.claude-plugin/plugin.json" "$T/plug2/.claude-plugin/"
+  grep -v '^user-invocable: true' "$SKILL_DIR/SKILL.md" > "$T/plug2/skills/mangchi/SKILL.md"
+  check "... and it fails when SKILL.md loses user-invocable" '! entry_gate "$T/plug2/skills/mangchi"'
   fi
 
   echo "codex-run selftest: $((n - fails))/$n passed${SECTIONS:+ (sections: $SECTIONS)}"

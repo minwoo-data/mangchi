@@ -1,6 +1,6 @@
 {
   "name": "mangchi",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Iterative cross-model code refinement \u2014 Claude patches, Codex CLI reviews one axis per round (5 default + necessity/robustness opt-in) with verification loop, until the code converges.",
   "author": {
     "name": "haroom",
@@ -17,6 +17,5 @@
     "adversarial-review",
     "cross-model"
   ],
-  "commands": "./commands/",
   "skills": "./skills/"
 }
