@@ -20,32 +20,29 @@
 
 ## 2. Codex Review Call (Phase 2)
 
-### Invocation (stdin via tempfile, no shell interpolation)
+### Invocation (`scripts/codex-run.sh` - preamble, stdin, read-only sandbox, scrub, schema check)
 ```bash
-cat > docs/refinement/mangchi/{slug}/round-{N}.prompt.txt <<'PROMPT_EOF'
-<full prompt body: axis rubric + updated.<ext> content + prior decisions digest>
-PROMPT_EOF
-
-codex exec --dangerously-bypass-approvals-and-sandbox \
-  < docs/refinement/mangchi/{slug}/round-{N}.prompt.txt \
-  > docs/refinement/mangchi/{slug}/round-{N}.codex.txt
+bash "<skill dir>/scripts/codex-run.sh" review docs/refinement/mangchi/{slug} {N} {axis}
 ```
 
-**Rationale**: 단일 인자 `"<prompt>"` 방식은 파일 내용에 backtick/`$(...)`/quote 있으면 shell injection. Heredoc `<<'PROMPT_EOF'` quoted + stdin으로 Codex에 전달해 이 벡터 차단.
+**Summary line**: `{codex_run_summary_line}` (`status=… verdict=… issues=… tokens=… sandbox=read-only`)
 
-**Token pre-estimate** (per-round guard, Phase 2 start):
-- `char_count(prompt) / 4 * 1.3` ≥ 80K → abort round (unless `--force-round`).
-- `--force-round`로 1회 bypass, state.json `force_round_rounds: [N]` 기록.
+**Prompt**: `round-{N}.prompt.txt` = preamble → 역할 + `{axis}` rubric + 출력 포맷 (axes.md) → `updated.{ext}` 전문 (줄번호, 호출마다 바뀌는 무작위 표식으로 감쌈) → `round-{N-1}.carryover.md` (R≥2) → 끝 표식. 스크립트가 조립 - argv 전달 없음 (shell injection 차단).
 
-### Raw YAML output
+**Token pre-estimate** (per-call guard, 스크립트가 계산):
+- `char_count(prompt) / 4 * 1.3` ≥ 180K → Codex 호출 없이 `degraded(prompt-too-large)` → abort `aborted_context_window`.
+
+### Codex answer (`round-{N}.codex.txt`, scrub 통과분)
 
 ```yaml
-{raw_codex_yaml}
+{codex_yaml_answer}
 ```
 
-**Schema validation** (Phase 3):
-- parse 실패 또는 required fields 누락 → Codex에 "schema 위반, 재전송" 프롬프트 1회 재시도.
-- 재시도 실패 → abort, `state.json.last_invalid_codex_output: "..."` 기록.
+**Schema validation** (Phase 3, `round-{N}.codex.txt.json`):
+- `status`: `{ok | schema-invalid(<field>) | degraded(<reason>) | secret-scrubbed(<reason>)}`
+- schema-invalid → 같은 명령에 `--retry` 1회 (첫 답은 `round-{N}.codex.attempt1.txt`).
+- secret-scrubbed → 재실행은 스크립트가 막는다. 사용자에게 알리고, 확인을 받은 뒤에만 `--after-incident`.
+- 재시도 실패 → abort `aborted_codex_schema`, `state.json.last_invalid_codex_output: "..."` 기록.
 
 **Fallback check**: `{no_fallback | [fallback: main-self-review] - reason}`
 
@@ -111,14 +108,13 @@ Original (`{target_file}`): `{unchanged | modified}` (apply_mode={apply_mode}).
 
 ### Verify invocation
 ```bash
-cat > docs/refinement/mangchi/{slug}/round-{N}.verify.prompt.txt <<'VERIFY_EOF'
-<verify prompt: REJECT된 이슈들 + 각 locus의 post-edit updated.<ext> ±10줄 context>
-VERIFY_EOF
-
-codex exec --dangerously-bypass-approvals-and-sandbox \
-  < docs/refinement/mangchi/{slug}/round-{N}.verify.prompt.txt \
-  > docs/refinement/mangchi/{slug}/round-{N}.verify.txt
+# round-{N}.rejects.yaml: REJECT된 이슈 - id(이번 리뷰) 또는 carried("R{m}.{axis}#{id}", 이월된 DISAGREE),
+# reason(file.ext:LINE / 노드 id / test_* 인용 필수), post_edit_lines(carried는 필수). locus·problem은 스크립트가 리뷰에서 가져온다.
+bash "<skill dir>/scripts/codex-run.sh" verify docs/refinement/mangchi/{slug} {N} \
+  --issues docs/refinement/mangchi/{slug}/round-{N}.rejects.yaml
 ```
+
+스크립트가 리뷰 원문과 각 이슈의 post-edit `updated.{ext}` ±10줄 context를 붙인다. 결과: `round-{N}.verify.txt` + `.json` (`status`, `verify.verifications[]`).
 
 ### Verify results
 
@@ -127,7 +123,7 @@ codex exec --dangerously-bypass-approvals-and-sandbox \
 | 2 | REJECT | AGREE | 종결 |
 | 3 | REJECT | DISAGREE | carry over to R{N+1}, status: PENDING |
 
-**FORCED_ACCEPT 룰**: 같은 `issue_id`가 2라운드 연속 DISAGREE → 강제 ACCEPT + `forced_accept_count += 1`. `forced_accept_count ≥ 3` → abort.
+**FORCED_ACCEPT 룰**: 같은 이슈가 2라운드 연속 DISAGREE (라운드 N의 DISAGREE를 라운드 N+1 rejects 파일에 `carried: "R{N}.{axis}#{id}"`로 다시 보냈는데 또 DISAGREE) → 강제 ACCEPT + `forced_accept_count += 1`. `forced_accept_count ≥ force_accept_threshold` (default **2**) → abort.
 
 ---
 
@@ -136,12 +132,12 @@ codex exec --dangerously-bypass-approvals-and-sandbox \
 | Condition | Value | Triggered? |
 |---|---|---|
 | 2 consecutive verified rounds (all ACCEPTs diff-verified + DISAGREE 0) | {running count} | {yes/no} |
-| 2 consecutive PASS (any axes, but 최소 `correctness` + `security` 중 최소 1회 실행 필수) | {running count} | {yes/no} |
+| 2 consecutive PASS (`correctness`와 `security`가 이력에 **각각** ≥ 1회 실행되어 있어야 유효) | {running count} | {yes/no} |
 | R5 cap | current=R{N} | {yes if N==5} |
 | `--gate "<cmd>"` (옵션) | `{gate_result or "N/A"}` | {yes/no} |
 | `--stop` (manual) | - | {yes/no} |
 | Token abort: cumulative ≥ 500K | {total} | {yes/no} |
-| `forced_accept_count ≥ 3` | {count} | {yes/no} |
+| `forced_accept_count ≥ force_accept_threshold` (default 2) | {count} / {threshold} | {yes/no} |
 
 **Termination**: `{CONTINUE | TERMINATE: <reason>}`
 
@@ -166,5 +162,6 @@ Cumulative ≥ 150K: `[WARN]` 로그. ≥ 500K: abort.
 - Excluded (already used or all-REJECTed + verify-AGREE): `{list}`
 - DISAGREE carry (이월 선행 의제): `{issue_id list}`
 - No-op ACCEPT carry: `{issue_id list}`
+- `round-{N}.carryover.md` 작성됨 (`## decisions` / `## carryover` / `## forced_accept`) - R{N+1} `review`가 읽는다
 
 종결 시 이 섹션 대신 **"CONVERGED - see CONVERGED.md"** 또는 **"ABORTED - see state.json"**.

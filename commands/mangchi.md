@@ -1,7 +1,7 @@
 ---
 name: mangchi
 description: "Iterative cross-model code refinement - Claude edits, Codex reviews one axis at a time with verification loop, until the code converges."
-argument-hint: "<file> [--apply=original] [--only-axes=a,b] [--include-axes=necessity] [--start-axis=security] [--gate \"cmd\"] [--no-verify] [--allow-self-review] [--force] [--force-round] [--force-accept-threshold=N] [--dry-run] | --continue <slug> | --stop <slug>"
+argument-hint: "<file> [--apply=original] [--only-axes=a,b] [--include-axes=necessity] [--start-axis=security] [--gate \"cmd\"] [--no-verify] [--allow-self-review] [--force] [--force-accept-threshold=N] | --continue <slug> | --stop <slug>"
 allowed-tools:
   - Bash
   - Read
@@ -33,13 +33,10 @@ Inspect `$ARGUMENTS` to determine the action:
 | `<file> --include-axes=necessity,robustness` | Default five + both opt-in axes |
 | `<file> --start-axis=<axis>` | Use `<axis>` for R1 instead of default `correctness` |
 | `<file> --gate "<cmd>"` | Require external command (e.g. `pytest -x`) exit 0 before CONVERGED |
-| `<file> --gate-every-round "<cmd>"` | Run gate at every round (not just termination) |
 | `<file> --no-verify` | Skip Phase 6 Codex verification of Claude's REJECTs (adversarial guarantee lost) |
 | `<file> --allow-self-review` | Do not prompt for self-review on missing Codex (CI use) |
 | `<file> --force` | Bypass pre-flight size limits (>2000 LoC / >200KB) |
-| `<file> --force-round` | Bypass per-round 80K token estimate cap for one round |
-| `<file> --force-accept-threshold=N` | FORCED_ACCEPT abort threshold (default 1 = strict) |
-| `<file> --dry-run` | Print R1 prompt without calling Codex |
+| `<file> --force-accept-threshold=N` | FORCED_ACCEPT abort threshold (default 2; `=1` strict for security/crypto) |
 | `--continue <slug>` | Resume an in-progress session from `docs/refinement/mangchi/<slug>/state.json` |
 | `--stop <slug>` | Force-close the named session, produce CONVERGED.md with current state |
 | (no argument) | Show interactive menu (see below) |
@@ -73,7 +70,8 @@ with the resolved argument string.
 ## Prerequisites (check before execute)
 
 1. **Bash 4+** - required for `declare -A`. Check with `[ "${BASH_VERSINFO[0]}" -ge 4 ] || abort`.
-2. **Codex CLI installed** - run `command -v codex || echo missing`.
+2. **Codex CLI >= 0.125.0 installed** (read-only sandbox flags) - `scripts/preflight.sh`
+   checks it and reports `CODEX=0|1`.
    - If missing in interactive TTY: prompt the user with recommendation
      (install Codex or use `/triad`) before falling back to self-review.
    - If missing in non-interactive env: auto-abort (unless `--allow-self-review`).
@@ -96,8 +94,11 @@ Read the skill file, then follow its workflow exactly:
    - Claude never skips a review round
    - Axis rotation enforced - no adjacent-round repeats
    - Original file never modified unless `--apply=original` explicitly passed
-   - Codex calls use tempfile + stdin only (shell-injection-safe - never
-     pass prompt as argv)
+   - Codex is called only through `skills/mangchi/scripts/codex-run.sh`
+     (`review` / `verify`): it adds the Sandbox Safety Preamble, sends the
+     prompt via tempfile + stdin (never argv), runs Codex in the read-only
+     sandbox, scrubs secrets and validates the YAML. Never call `codex exec`
+     directly.
    - REJECT requires `file:LINE` citation (hard validation error otherwise)
 4. Preserve per-round audit trail under
    `docs/refinement/mangchi/<slug>/` as documented (new namespace, separates
@@ -125,19 +126,29 @@ On success, the user should be able to:
 
 ## Notes for the main agent
 
-- If Codex call fails (exit code ≠ 0 or CLI missing), handle per SKILL.md's
-  "Codex 부재 시 동작" section - interactive confirmation to self-review, or
-  auto-abort in non-interactive environments. Do NOT silently fall back.
-- Never elide or shorten the target file content when building the Codex
-  prompt. Always `cat` the whole file into the prompt file, then redirect
-  stdin - content shortening has previously been documented to degrade review
-  fidelity (see `skills/mangchi/references/usage.md`).
-- **All dynamic prompt content MUST be appended via `cat <file> >>`, never
-  via unquoted variable expansion**. Codex outputs may contain backticks and
-  `$(...)` - interpolating them would re-trigger shell expansion.
+- If a Codex call fails (`status=degraded(timeout|codex-unavailable|no-last-message)`
+  twice, or the CLI is missing), handle per SKILL.md's "Codex 부재 시 동작"
+  section - interactive confirmation to self-review, or auto-abort in
+  non-interactive environments. Do NOT silently fall back.
+  `secret-scrubbed(...)` is a security incident: never auto-retry, tell the user.
+  The script refuses a re-run of that call until the user has looked at it and
+  you pass `--after-incident`.
+- The script puts the whole `updated.<ext>` into the prompt (never elided -
+  content shortening has previously been documented to degrade review
+  fidelity, see `skills/mangchi/references/usage.md`) and builds every dynamic
+  section from files, so Codex output with backticks or `$(...)` is never
+  re-expanded by a shell.
 - If the user provides a file path that matches `*.md`, warn them that
   mangchi is for code and recommend the triad plugin for markdown.
 - Cross-round issue identifiers use the format `R{n}.{axis}#{id}` - within a
   round `id` is unique, but round numbers prefix for cross-round reference.
 - Legacy sessions (schema_version absent) encountered via `--continue`:
   warn the user before resuming; behavior may differ from current design.
+- Sessions created by mangchi 0.3.x (state.json has `schema_version` 1 but no
+  `mangchi_version`): `codex-run.sh` exits 2 with migration steps. Write
+  `round-(N-1).carryover.md` from state.json, move aside any
+  `round-N.codex.txt` without a `.json`, add `"mangchi_version": "0.4.0"`, then
+  continue.
+- To re-verify an issue Codex DISAGREEd on in the previous round, put it in the
+  rejects file as `carried: "R{n}.{axis}#{id}"` (with `post_edit_lines`); it
+  must be listed under `## carryover` in the previous round's carryover file.

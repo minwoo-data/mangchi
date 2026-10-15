@@ -6,15 +6,15 @@
 ```json
 {
   "schema_version": 1,
+  "mangchi_version": "0.4.0",
   "slug": "src-routes-auth-py",
+  "target_basename": "auth.py",
   "started_at": "2026-04-16T10:00:00Z",
   "self_review_mode": false,
   "no_verify_mode": false,
   "axes_opt_in": [],
   "start_axis": "correctness",
   "gate_cmd": null,
-  "gate_every_round": false,
-  "force_round_rounds": [],
   "rounds": [
     {
       "n": 1,
@@ -59,8 +59,10 @@
 ## Field notes
 
 - `axes_opt_in`: values of `--include-axes` (`necessity`, `robustness`).
-- `rounds[].codex_tokens.estimate_only`: true when Codex CLI returned no usage info and the `char/4*1.3` heuristic was used.
+- `mangchi_version`: written by `scripts/preflight.sh` since 0.4.0. `codex-run.sh` refuses a session whose state.json lacks it (a 0.3.x session) and prints the migration steps: write `round-(N-1).carryover.md` from this file, move aside any `round-N.codex.txt` that has no `.json`, then add the field.
+- `target_basename`: the original file name. The working copy is always `updated.<ext>`, so `codex-run.sh` re-checks this name against the credential-file list on every call.
+- `rounds[].codex_tokens`: copied from the result JSON `scripts/codex-run.sh` writes next to each answer (`round-N.codex.txt.json` / `round-N.verify.txt.json`), field `tokens.call_total`. That total includes every earlier attempt of the same call (`tokens.prior_total`: the schema retry's first attempt, a re-run after a timeout), so the 500K guard sees them. `estimate_only` is true when Codex CLI reported no usage (the `tokens used` footer after the echoed prompt) and the `char/4*1.3` estimate of the assembled prompt was used.
 - `issues[].status`: `RESOLVED` (closed) / `PENDING` (carried over, incl. no-op ACCEPT) / `FORCED_ACCEPT` (2 consecutive DISAGREE).
 - `issues[].history[].diff_verified`: result of the Phase 5 `git diff -w --numstat` ±5-line locus check.
 - `termination_reason`: one of `verified_rounds` / `two_pass` / `r5_cap` / `gate_pass` / `user_stop` / `aborted_token_budget` / `aborted_forced_accept` / `aborted_codex_schema` / `aborted_context_window` / `aborted_gate_failed` / `aborted_no_termination_path`.
-- Legacy (pre-0.2.0) sessions have no `schema_version`; `--continue` prints a warning and maps `verdict: BLOCK` → `REVISE + severity: HIGH`.
+- Legacy (pre-0.2.0) sessions have no `schema_version`; `--continue` prints a warning and maps `verdict: BLOCK` → `REVISE + severity: HIGH`. 0.2.x-0.3.x sessions have `schema_version` 1 but no `mangchi_version`: see `mangchi_version` above.

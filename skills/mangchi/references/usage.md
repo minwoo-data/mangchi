@@ -169,8 +169,8 @@ commit
 - **Verification loop** (Claude의 REJECT를 Codex가 재검증, REJECT-all 게이밍 차단)
 - **ACCEPT git-diff 검증** (no-op ACCEPT 차단)
 - **Pass-based 종결의 최소 축 커버리지** (correctness + security 최소 1회 실행 필수)
-- **Token 예산** (per-round 80K, cumulative 150K 경고 / 500K abort)
-- **Shell injection 방어** (Codex 호출은 tempfile + stdin, argv 금지)
+- **Token 예산** (per-call 180K - 조립된 프롬프트 기준 `char/4*1.3`, cumulative 150K 경고 / 500K abort)
+- **Codex 호출 계약을 코드로** (`scripts/codex-run.sh`: Sandbox Safety Preamble, tempfile + stdin·argv 금지, read-only 샌드박스, secret scrub, YAML 스키마 검증·재시도 1회)
 - **Schema 검증 + 1회 재시도** (Codex 출력 깨져도 안전 종료)
 - **Fallback 투명 태깅** (Codex 실패 / self-review / `--no-verify` 모두 state.json에 기록)
 

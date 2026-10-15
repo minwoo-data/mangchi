@@ -6,7 +6,7 @@
 **Started**: {start_timestamp}
 **Closed**: {end_timestamp}
 **Rounds consumed**: {N} / 5
-**Termination reason**: `{two_verified_rounds | two_consecutive_pass | max_rounds_cap | gate_passed | user_stop | aborted_token_budget | aborted_forced_accept_threshold | aborted_codex_schema_retry}`
+**Termination reason**: `{verified_rounds | two_pass | r5_cap | gate_pass | user_stop | aborted_token_budget | aborted_forced_accept | aborted_codex_schema | aborted_context_window | aborted_gate_failed | aborted_no_termination_path}`
 **Schema version**: 1
 
 > **Pass-based 종결의 최소 커버리지 룰**:
@@ -54,8 +54,8 @@ Codex가 DISAGREE로 유지 주장한 이슈의 최종 처리.
 
 | issue_id | round | axis | final action | reason |
 |---|---|---|---|---|
-| 3 | R1→R2 | correctness | FORCED_ACCEPT | 2연속 DISAGREE, round 2 에서 반영 |
-| 7 | R3→R4 | design | still PENDING at termination | R5 cap - 남은 의제로 보고 |
+| R1.correctness#3 | R1→R2 | correctness | FORCED_ACCEPT | 2연속 DISAGREE (R2 verify에 `carried`로 재검증), round 2 에서 반영 |
+| R3.design#7 | R3→R4 | design | still PENDING at termination | R5 cap - 남은 의제로 보고 |
 
 ## 6. No-op ACCEPT (수정 적용 실패)
 
@@ -70,7 +70,7 @@ ACCEPT 판정했으나 실제 `updated.<ext>` 변경에 locus 영역이 반영�
 | Reviews (Phase 2 × N rounds) | {sum} |
 | Verifies (Phase 6 × K rounds) | {sum} |
 | **Total cumulative** | {total} (budget: 500K) |
-| Per-round peak | {max} (cap: 80K) |
+| Per-call peak | {max} (cap: 180K, `char/4*1.3`) |
 
 ## 8. Known Limits
 
