@@ -181,7 +181,7 @@ stdout 첫 줄 = 요약(`status=ok verdict=REVISE issues=3 high=1 tokens=… mod
 | `degraded(result-failed)` | 검증 도우미(`mangchi_yaml.py`)가 실패. JSON `error` 확인 후 같은 명령 재실행 (답은 검증 전이라 쓰지 않는다) |
 | `secret-scrubbed(...)` | 보안 사건. **자동 재시도 금지**: 같은 호출의 재실행과 `--retry`를 스크립트가 exit 2로 막는다. 사용자에게 알리고, 사용자가 확인한 뒤에만 같은 명령에 `--after-incident`를 붙인다 (이전 마커는 `*.incident.*`로 보존) |
 
-exit 2 = 인자·설정·설치 오류(carryover 없음, 축·라운드 오류, axes.md 절 없음, 이미 유효한 답이 있는 라운드 재호출, 동시 실행, 결과 JSON 없이 답만 있음, 깨진 JSON, `--after-incident` 없는 보안 사건 뒤 재실행, 0.3.x 세션 등) - 메시지대로 고치고, 다른 모델로 재시도하지 않는다. 0.3.x에서 만든 세션(`state.json`에 `mangchi_version` 없음)은 메시지의 이주 절차(carryover 파일 작성, JSON 없는 라운드 답 옮기기, `mangchi_version` 추가)를 먼저 한다. exit 130 = 중단(마커와 JSON은 남는다).
+exit 2 = 인자·설정·설치 오류(carryover 없음, 축·라운드 오류, axes.md 절 없음, 이미 유효한 답이 있는 라운드 재호출, 동시 실행, 결과 JSON 없이 답만 있음, 깨진 JSON, `--after-incident` 없는 보안 사건 뒤 재실행, 0.3.x 세션 등) - 메시지대로 고치고, 다른 모델로 재시도하지 않는다. 0.3.x에서 만든 세션(`state.json`에 `mangchi_version` 없음)은 메시지의 이주 절차(carryover 파일 작성, JSON 없는 라운드 답 옮기기, `mangchi_version` 추가)를 먼저 한다. exit 130 = 중단(마커와 JSON은 남는다). exit 130 뒤에는 다시 돌리기 전에 결과 JSON의 `status`부터 읽는다: 격리(scan) 중에 중단됐으면 `secret-scrubbed(...)`라서 보안 사건 규칙을 따른다. stderr의 `another attempt took over` 경고는 같은 호출의 다른 시도가 잠금을 가져갔다는 뜻이다 - 이쪽 결과는 쓰지 않고 그 시도의 결과를 기다린다.
 
 FORCED_ACCEPT 식별자는 `R{n}.{axis}#{id}` (예 `R1.correctness#2`) - round 내 id는 round 간 재사용되므로 prefix 필수.
 

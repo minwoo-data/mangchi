@@ -5,6 +5,89 @@ All notable changes to the Mangchi plugin are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-10-19
+
+The shared safety core gets the fixes from the /prism-all review of triad
+0.3.2 (triad PR #7, released as triad 0.3.3). triad's core was ported from
+mangchi 0.4.0, so mangchi had the same defects.
+
+### Fixed
+- **Documented example values were quarantined** (MED). The value-only
+  placeholder test from 0.4.0 (PRISM-031) kept values that prism drops:
+  - shell defaults: `${POSTGRES_PASSWORD:-changeme}`, `DB_PASSWORD:=changeme123`
+  - a vendor prefix followed only by x or *: `AKIAXXXXXXXXXXXXXXXX`,
+    `ghp_xxxx…`, `sk-proj-xxxx…`, `xoxb-xxxx-xxxx`
+  - AWS's `…EXAMPLE` and `…EXAMPLEKEY` values
+
+  Codex quoting one of these turned the call into a security incident.
+- **"Whole value is a placeholder" was really a prefix test** (MED).
+  `API_KEY=your_Zk81mQp2…`, `DB_PASSWORD=ExampleCorp2024Secret` and
+  `postgres://u:dummyZk81…@` were dropped as examples. A placeholder word may
+  now be followed only by more words (`your_api_key_here`) or only by digits
+  (`changeme123`).
+- **Lock reclaim race** (MED). The slower of two attempts that found the same
+  abandoned lock could rename away the lock the faster one had just
+  re-created, so both ran. Reclaim now happens under a second lock
+  (`<out>.lock.reclaim`), and the lock is checked again once that is held.
+  `cr_exit` warns when another attempt took the lock over.
+- **Interrupts** (LOW):
+  - A signal that comes while Codex and the watchdog are starting is held
+    until their pids are known, so the handler can stop them.
+  - A signal that came while the scan was deciding on a leak ran the handler
+    before the leak was recorded, so the call read as an ordinary interrupt.
+    Signals are now held until the verdict is recorded. A scan that fails
+    meanwhile counts as interrupted, not `scan-failed` (a Ctrl-C also kills
+    the scan's grep).
+  - A second, different signal re-entered the handler halfway (bash nests
+    handlers for different signals) and could drop the CLEANUP FAILED report.
+    The handler now ignores further signals.
+  - The handler is disarmed once the result is final.
+- **`cleanup_failed` missed part of the scratch** (LOW). Only a failure to
+  delete the raw stream was recorded. The last message of a failed call and
+  Codex's working dir were deleted on exit, after the result JSON was written,
+  so a failure there reached only stderr. Everything that may hold Codex output
+  is now deleted before the result is published. A failure sets
+  `cleanup_failed` (the scratch path), adds `,cleanup-failed` to a
+  `secret-scrubbed(...)` status and a CLEANUP FAILED line to its marker. The
+  verify call's issues snapshot, which the result check reads, still goes on
+  exit.
+- Fail-closed gaps:
+  - A failing `sort` in the secret check returned "clean".
+  - A failing `find` in the stale-scratch sweep counted as "nothing recent",
+    so the dir was deleted. It now counts as recent.
+  - An unreadable mtime made a pid-less lock look new forever. It now counts
+    as old.
+- The `scan-failed` marker said "re-run with --after-incident". It now says not
+  to auto-retry, and to re-run only after the user fixed the disk or
+  permissions, as SKILL.md already said for `secret-scrubbed(...)`.
+- SKILL.md: after exit 130, read the JSON `status` first; the takeover warning
+  is described.
+
+### Changed (selftest, 126 → 142 checks)
+- Mtimes are moved back with `touch -t` (GNU or BSD `date`), so the lock and
+  sweep cases also run on macOS. "Dead" pids are reaped children, not 999999.
+- The symlink cases run on Git Bash without Developer Mode
+  (`MSYS=winsymlinks:sys`); 0.4.1 skipped its one symlink case there. Cases a
+  machine cannot run are counted as "skipped" in the last line.
+- The portable-watchdog check runs with a 40 s kill grace (test-only
+  `_CODEX_RUN_KILL_GRACE`), so a watchdog that holds the caller's pipe fails it.
+- The quarantine-interrupt case waits on a handshake instead of a fixed 3 s
+  sleep.
+- New cases: a late reclaimer, a reclaim in progress, the takeover warning, an
+  unreadable mtime, a failing `find`, a failing `sort`, an interrupt while the
+  scan decides and a scan that fails during it, a second signal during the
+  handler, an interrupt with an undeletable scratch, the leak path with an
+  undeletable scratch, an old scratch dir with a recent file, `destroy_dir` and
+  `destroy` on symlinks, the placeholder forms above in both directions.
+- Mutation check: 22 of 22 mutants (one per fix, applied to the ported core) are caught by their
+  target case; a 23rd (the kill-grace default) is equivalent and was dropped.
+
+### Not fixed (suspected, from the triad review)
+- `[ -O ]` might be false for the user's own dirs on some Windows setups.
+- The `destroy_dir` check-then-use window needs a shared TMPDIR without the
+  sticky bit.
+- mawk 1.3.3 might not support `[[:space:]]`; that case fails closed.
+
 ## [0.4.1] - 2026-10-14
 
 `/mangchi` runs the skill directly. The duplicate `commands/mangchi.md` is gone:
